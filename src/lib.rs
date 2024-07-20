@@ -134,32 +134,67 @@ impl fmt::Display for PtrId {
 fn destruct(f: &mut Function) {
     let pred = pred(f);
     println!("{pred:?}");
-    let dom = dom(f, &pred);
+    let dom = dominators(f, &pred);
     println!("{dom:?}");
+    let idom = immediate_dominators(&dom);
+    println!("{idom:?}");
+    let dft = dominance_frontiers(f, &idom, &pred);
+    println!("{dft:?}");
 }
 
-/* fn dft(f: &Function) -> Vec<Vec<BlockId>> {
-    let mut dft = vec![vec![]; f.blocks.len()];
+type BlockIdSet = Vec<HashSet<BlockId>>;
 
-    for (i, b) in f.blocks.iter().enumerate() {
-        let ipred = b.term.imm_pred();
-        if ipred.len() >= 2 {
-            let idom_b = idom(BlockId(i));
+fn dominance_frontiers(f: &Function, idom: &[Option<BlockId>], pred: &BlockIdSet) -> BlockIdSet {
+    let mut dft = vec![HashSet::new(); f.blocks.len()];
 
-            for p in ipred.iter() {
+    for (bi, _) in f.blocks.iter().enumerate() {
+        if let Some(ib) = idom[bi] {
+            for p in pred[bi].iter() {
                 let mut runner = *p;
-                while runner.0 != idom_b.0 {
-                    dft[runner.0].push(BlockId(i));
-                    runner = idom(runner);
+
+                while runner != ib {
+                    dft[runner.0].insert(BlockId(bi));
+                    if let Some(r) = idom[runner.0] {
+                        runner = r;
+                    } else {
+                        break;
+                    }
                 }
             }
         }
     }
 
     dft
-} */
+}
 
-fn dom(f: &Function, pred: &[HashSet<BlockId>]) -> Vec<HashSet<BlockId>> {
+fn immediate_dominators(dom: &BlockIdSet) -> Vec<Option<BlockId>> {
+    let mut idom = vec![None; dom.len()];
+
+    for (bi, b) in dom.iter().enumerate().skip(1) {
+        'check: for (ci, c) in dom.iter().enumerate().rev() {
+            if ci == bi || !b.contains(&BlockId(ci)) {
+                println!("{bi} !sdom {ci} {c:?}");
+                continue;
+            }
+
+            for o in c.iter() {
+                if o.0 == ci { continue; }
+                if bi != o.0 && dom[o.0].contains(&BlockId(bi)) {
+                    println!("{bi} {ci} {o}");
+                    continue 'check;
+                }
+            }
+
+            idom[bi] = Some(BlockId(ci));
+            break;
+        }
+    }
+
+    idom
+}
+
+// https://users-cs.au.dk/gerth/advising/thesis/henrik-knakkegaard-christensen.pdf page 18
+fn dominators(f: &Function, pred: &BlockIdSet) -> BlockIdSet {
     let mut dom = vec![HashSet::new(); f.blocks.len()];
     dom[0].insert(BlockId(0));
 
@@ -175,12 +210,12 @@ fn dom(f: &Function, pred: &[HashSet<BlockId>]) -> Vec<HashSet<BlockId>> {
 
         for (vi, _) in f.blocks.iter().enumerate().skip(1) {
             let mut new = all_v.clone();
-            for (qi, _) in pred[vi].iter().enumerate() {
-                new.retain(|e| dom[qi].contains(&e));
+            for q in pred[vi].iter() {
+                new.retain(|e| dom[q.0].contains(&e));
             }
 
             new.insert(BlockId(vi));
-            changed |= new == dom[vi];
+            changed |= new != dom[vi];
             dom[vi] = new;
         }
     }
@@ -188,27 +223,20 @@ fn dom(f: &Function, pred: &[HashSet<BlockId>]) -> Vec<HashSet<BlockId>> {
     dom
 }
 
-fn pred(f: &Function) -> Vec<HashSet<BlockId>> {
+fn pred(f: &Function) -> BlockIdSet {
     let mut pred = vec![HashSet::new(); f.blocks.len()];
 
-    fn ins(pred: &mut [HashSet<BlockId>], f: &Function, at: BlockId, b: BlockId) {
-        for ip in f.blocks[at.0].term.imm_pred() {
-            if !pred[ip.0].contains(&b) {
-                pred[ip.0].insert(b);
-                ins(pred, f, ip, b);
-            }
-        }
-    }
-
     for b in 0..f.blocks.len() {
-        ins(&mut pred, f, BlockId(b), BlockId(b));
+        for is in f.blocks[b].term.immediate_successor() {
+            pred[is.0].insert(BlockId(b));
+        }
     }
 
     pred
 }
 
 impl Terminator {
-    fn imm_pred(&self) -> Vec<BlockId> {
+    fn immediate_successor(&self) -> Vec<BlockId> {
         match self {
             Self::CondBranch(_, a, b) => vec![*a, *b],
             Self::UncondBranch(t) => vec![*t],
