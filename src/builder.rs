@@ -1,4 +1,4 @@
-use crate::*;
+use crate::{*, types::*, value::*};
 
 pub struct Builder<'a> {
     program: Program<'a>,
@@ -26,8 +26,7 @@ impl<'a> Builder<'a> {
             name,
             blocks: vec![],
 
-            next_var: VarId(0),
-            next_ptr: PtrId(0),
+            next_val: ValueId(0),
         });
         id
     }
@@ -52,16 +51,58 @@ impl<'a> Builder<'a> {
         id
     }
 
-    pub fn alloc_var(&mut self) -> VarId {
-        self.program.functions[self.at_fn.unwrap().0].alloc_var()
+    fn alloc_val_id(&mut self) -> ValueId {
+        self.program.functions[self.at_fn.unwrap().0].alloc_val()
     }
 
-    pub fn alloc_ptr(&mut self) -> PtrId {
-        self.program.functions[self.at_fn.unwrap().0].alloc_ptr()
+    fn alloc_val(&mut self, typ: ValueType) -> Value {
+        Value {
+            typ,
+            id: self.alloc_val_id(),
+        }
     }
 
-    pub fn push_inst(&mut self, inst: Instruction) {
+    fn alloc_int(&mut self, size: usize) -> IntValue {
+        IntValue {
+            size,
+            id: self.alloc_val_id(),
+        }
+    }
+
+    fn alloc_ptr(&mut self) -> PtrValue {
+        PtrValue(self.alloc_val_id())
+    }
+
+    fn push_inst(&mut self, inst: Instruction) {
         self.program.functions[self.at_fn.unwrap().0].blocks[self.at_bb.unwrap().0].insts.push(inst);
+    }
+
+    pub fn push_int_op(&mut self, op: IntOp, a: IntValue, b: IntValue) -> IntValue {
+        let d = self.alloc_int(a.size);
+        self.push_inst(Instruction::IntOp(op, d, a, b));
+        d
+    }
+
+    pub fn push_alloc(&mut self, t: Type) -> PtrValue {
+        let d = self.alloc_ptr();
+        self.push_inst(Instruction::Alloc(d, t));
+        d
+    }
+
+    pub fn push_load(&mut self, p: PtrValue, t: ValueType) -> Value {
+        let d = self.alloc_val(t);
+        self.push_inst(Instruction::Load(d, p));
+        d
+    }
+
+    pub fn push_store(&mut self, p: PtrValue, v: Value) {
+        self.push_inst(Instruction::Store(p, v));
+    }
+
+    pub fn int_const(&mut self, size: usize, val: u128) -> IntValue {
+        let d = self.alloc_int(size);
+        self.push_inst(Instruction::Assign(d.into(), val));
+        d
     }
 
     pub fn set_term(&mut self, term: Terminator) {
