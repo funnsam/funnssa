@@ -1,11 +1,13 @@
 pub mod builder;
 
-pub struct Program {
-    functions: Vec<Function>,
+pub struct Program<'a> {
+    functions: Vec<Function<'a>>,
 }
 
-struct Function {
+struct Function<'a> {
+    name: &'a str,
     blocks: Vec<BasicBlock>,
+
     next_var: VarId,
     next_ptr: PtrId,
 }
@@ -48,7 +50,7 @@ pub struct PtrId(pub(crate) usize);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FuncId(pub(crate) usize);
 
-impl Function {
+impl Function<'_> {
     fn alloc_var(&mut self) -> VarId {
         let id = self.next_var;
         self.next_var.0 += 1;
@@ -65,17 +67,17 @@ impl Function {
 use core::fmt;
 use std::collections::HashSet;
 
-impl fmt::Display for Program {
+impl fmt::Display for Program<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (i, fc) in self.functions.iter().enumerate() {
-            writeln!(f, "fn {i}:\n{fc}")?;
+            writeln!(f, "fn {i} {}:\n{fc}", fc.name)?;
         }
 
         Ok(())
     }
 }
 
-impl fmt::Display for Function {
+impl fmt::Display for Function<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (i, bb) in self.blocks.iter().enumerate() {
             write!(f, "{i}: {bb}")?;
@@ -298,5 +300,26 @@ impl Terminator {
             Self::UncondBranch(t) => vec![*t],
             Self::Return(_) | Self::None => vec![],
         }
+    }
+}
+
+impl Program<'_> {
+    pub fn print_cfg(&self) {
+        for f in self.functions.iter() {
+            f.print_cfg();
+        }
+    }
+}
+
+impl Function<'_> {
+    pub fn print_cfg(&self) {
+        println!("digraph {} {{", self.name);
+        for (bi, b) in self.blocks.iter().enumerate() {
+            println!("    {bi};");
+            for ep in b.term.immediate_successor() {
+                println!("    {bi} -> {};", ep.0);
+            }
+        }
+        println!("}}");
     }
 }

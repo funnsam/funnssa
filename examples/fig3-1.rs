@@ -2,7 +2,7 @@ use funnssa::*;
 
 fn main() {
     let mut builder = builder::Builder::new();
-    let fig3_1 = builder.create_function();
+    let fig3_1 = builder.create_function("fig3_1");
     builder.position_at_function(fig3_1);
 
     let entry = builder.push_block();
@@ -65,4 +65,5 @@ fn main() {
 
     let prog = builder.done();
     println!("{prog}");
+    prog.print_cfg();
 }

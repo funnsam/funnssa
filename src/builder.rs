@@ -1,14 +1,14 @@
 use crate::*;
 
-pub struct Builder {
-    program: Program,
+pub struct Builder<'a> {
+    program: Program<'a>,
 
     at_fn: Option<FuncId>,
     at_bb: Option<BlockId>,
 
 }
 
-impl Builder {
+impl<'a> Builder<'a> {
     pub fn new() -> Self {
         Self {
             program: Program {
@@ -20,9 +20,10 @@ impl Builder {
         }
     }
 
-    pub fn create_function(&mut self) -> FuncId {
+    pub fn create_function(&mut self, name: &'a str) -> FuncId {
         let id = FuncId(self.program.functions.len());
         self.program.functions.push(Function {
+            name,
             blocks: vec![],
 
             next_var: VarId(0),
@@ -67,7 +68,7 @@ impl Builder {
         self.program.functions[self.at_fn.unwrap().0].blocks[self.at_bb.unwrap().0].term = term;
     }
 
-    pub fn done(mut self) -> Program {
+    pub fn done(mut self) -> Program<'a> {
         destruct(&mut self.program.functions[0]);
         self.program
     }
