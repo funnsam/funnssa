@@ -7,23 +7,27 @@ use std::collections::{HashMap, HashSet};
 use types::*;
 use value::*;
 
+#[derive(Clone)]
 pub struct Program<'a> {
     functions: Vec<Function<'a>>,
 }
 
+#[derive(Clone)]
 struct Function<'a> {
     name: &'a str,
     blocks: Vec<BasicBlock>,
 
-    next_val: ValueId,
+    val_alloc: ValAlloc,
 }
 
+#[derive(Clone)]
 struct BasicBlock {
     args: Vec<Value>,
     insts: Vec<Instruction>,
     term: Terminator,
 }
 
+#[derive(Clone)]
 enum Instruction {
     Assign(Value, u128),
     Alloc(PtrValue, Type),
@@ -34,6 +38,7 @@ enum Instruction {
     Store(PtrValue, Value),
 }
 
+#[derive(Clone)]
 enum Terminator {
     CondBranch(IntValue, TermBlockId, TermBlockId),
     UncondBranch(TermBlockId),
@@ -47,6 +52,7 @@ struct TermBlockId {
     args: Vec<ValueId>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum IntOp {
     Add,
 }
@@ -57,10 +63,13 @@ pub struct BlockId(pub(crate) usize);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FuncId(pub(crate) usize);
 
-impl Function<'_> {
+#[derive(Clone)]
+struct ValAlloc(ValueId);
+
+impl ValAlloc {
     fn alloc_val(&mut self) -> ValueId {
-        let id = self.next_val;
-        self.next_val.0 += 1;
+        let id = self.0;
+        self.0.0 += 1;
         id
     }
 }
@@ -81,7 +90,7 @@ fn destruct(f: &mut Function) {
     let dft = dominance_frontiers(f, &idom, &pred);
     println!("{dft:?}");
 
-    let vdefs = get_val_defs(f);
+    let mut vdefs = get_val_defs(f);
     println!("{vdefs:?}");
     let adefs = get_alloc_defs(f);
     println!("{adefs:?}");
@@ -90,9 +99,9 @@ fn destruct(f: &mut Function) {
         add_args(f, d, *i, *typ, &dft, &pred);
     }
 
-    let mut rdef: Vec<Option<ValueId>> = vec![Some(ValueId(1)); f.next_val.0];
+    let mut rdef: Vec<Option<ValueId>> = vec![None; f.val_alloc.0.0];
     dom_tree_iter(&idom, BlockId(0), &mut |node| {
-        let update_reaching_def = |rdef: &mut Vec<Option<ValueId>>, v: &ValueId, ii| {
+        let update_reaching_def = |rdef: &mut Vec<Option<ValueId>>, vdefs: &Vec<(BlockId, usize)>, v: &ValueId, ii| {
             let mut r = rdef[v.0];
             while let Some(cr) = r {
                 let def_r = vdefs[cr.0];
@@ -100,36 +109,58 @@ fn destruct(f: &mut Function) {
 
                 r = rdef[cr.0];
             }
-            println!("{v} {:?} {r:?}", rdef[v.0]);
             rdef[v.0] = r;
         };
 
         println!("{node}");
 
-        for (ii, i) in f.blocks[node.0].insts.iter_mut().enumerate() {
-            match i {
+        for pi in 0..f.blocks[node.0].args.len() {
+            let parm = f.blocks[node.0].args[pi];
+            println!("def {parm}");
+
+            update_reaching_def(&mut rdef, &vdefs, &parm.id, 0);
+            let vd = f.val_alloc.alloc_val();
+            rdef.push(rdef[parm.id.0]);
+            vdefs.push((node, 0));
+            rdef[parm.id.0] = Some(vd);
+
+            println!("{}", rdef[parm.id.0].unwrap());
+            f.blocks[node.0].args[pi].id = vd;
+        }
+
+        for ii in 0..f.blocks[node.0].insts.len() {
+            let i = &mut f.blocks[node.0].insts[ii];
+            match i.clone() {
                 Instruction::Load(d, p) => {
-                    update_reaching_def(&mut rdef, &p.0, ii);
+                    println!("use {p}");
+                    update_reaching_def(&mut rdef, &vdefs, &p.0, ii);
                     if let Some(rdef) = rdef[p.0.0] {
-                        *i = Instruction::Move(*d, Value { typ: d.typ, id: rdef });
+                        *i = Instruction::Move(d, Value { typ: d.typ, id: rdef });
+                        println!("{rdef}");
                     }
                 },
                 Instruction::Store(d, v) => {
-                    update_reaching_def(&mut rdef, &v.id, ii);
-                    rdef[d.0.0] = rdef[v.id.0];
-                    rdef[v.id.0] = Some(d.0);
+                    println!("def {d}");
+                    update_reaching_def(&mut rdef, &vdefs, &d.0, ii);
+                    let vd = f.val_alloc.alloc_val();
+                    rdef.push(rdef[d.0.0]);
+                    vdefs.push((node, 0));
+                    rdef[d.0.0] = Some(vd);
+
+                    *i = Instruction::Move(Value { typ: v.typ, id: vd }, v);
+                    println!("{}", rdef[d.0.0].unwrap());
                 },
                 _ => {},
             }
         }
 
-        println!("φ");
-
-        for pred in f.blocks[node.0].term.immediate_successor_mut() {
-            for v in pred.args.iter_mut() {
-                update_reaching_def(&mut rdef, v, usize::MAX);
+        for succ in f.blocks[node.0].term.immediate_successor_mut() {
+            for v in succ.args.iter_mut() {
+                println!("use {v}");
+                update_reaching_def(&mut rdef, &vdefs, v, usize::MAX);
                 if let Some(rdef) = rdef[v.0] {
                     *v = rdef;
+                    println!("{rdef}");
                 }
             }
         }
@@ -165,7 +196,7 @@ fn get_alloc_defs(f: &Function) -> HashMap<ValueId, (HashSet<BlockId>, ValueType
 }
 
 fn get_val_defs(f: &Function) -> Vec<(BlockId, usize)> {
-    let mut defs = vec![(BlockId(0), 0); f.next_val.0];
+    let mut defs = vec![(BlockId(0), 0); f.val_alloc.0.0];
 
     for (bi, b) in f.blocks.iter().enumerate() {
         for (ii, i) in b.insts.iter().enumerate() {
@@ -214,22 +245,8 @@ fn dom_tree_iter<F: FnMut(BlockId)>(idom: &[Option<BlockId>], at: BlockId, f: &m
     }
 }
 
-// fn find_reaching_def(f: &mut Function, v: ValueId, bb: BlockId, inst: usize, defs: &[(BlockId, usize)], dom: &BlockIdSet) -> ValueId {
-//     let mut rdef = Some(v);
-// 
-//     while let Some(rdef) = rdef {
-//         let (db, di) = defs[rdef.0];
-//         if dominates_inst(bb, inst, db, di, dom) { break; }
-// 
-//         rdef = rdef.rdef;
-//     }
-// 
-//     rdef
-// }
-// 
-
-fn dominates_inst(bb1: BlockId, inst1: usize, bb2: BlockId, inst2: usize, dom: &BlockIdSet) -> bool {
-    return dom[bb1.0].contains(&bb2) || (bb1 == bb2 && inst1 < inst2);
+fn dominates_inst(bb2: BlockId, inst2: usize, bb1: BlockId, inst1: usize, dom: &BlockIdSet) -> bool {
+    return dom[bb1.0].contains(&bb2) || (bb1 == bb2 && inst1 <= inst2);
 }
 
 type BlockIdSet = Vec<HashSet<BlockId>>;

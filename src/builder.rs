@@ -26,7 +26,7 @@ impl<'a> Builder<'a> {
             name,
             blocks: vec![],
 
-            next_val: ValueId(0),
+            val_alloc: ValAlloc(ValueId(0)),
         });
         id
     }
@@ -52,7 +52,7 @@ impl<'a> Builder<'a> {
     }
 
     fn alloc_val_id(&mut self) -> ValueId {
-        self.program.functions[self.at_fn.unwrap().0].alloc_val()
+        self.program.functions[self.at_fn.unwrap().0].val_alloc.alloc_val()
     }
 
     fn alloc_val(&mut self, typ: ValueType) -> Value {
