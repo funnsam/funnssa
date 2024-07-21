@@ -11,10 +11,10 @@ fn main() {
     builder.position_at_bb(entry);
     let x = builder.push_alloc(typ.into());
     let zero = builder.push_int_const(32, 0);
-    builder.push_store(x, zero.into());
+    builder.push_store(x, zero);
     let a = builder.push_load(x, typ);
     let b = builder.push_int_op(IntOp::Add, a.try_into().unwrap(), zero);
-    builder.push_store(x, b.into());
+    builder.push_store(x, b);
     let h = builder.push_load(x, typ);
     builder.set_ret(Some(h));
 

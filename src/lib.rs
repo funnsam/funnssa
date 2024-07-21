@@ -32,7 +32,7 @@ enum Instruction {
     Assign(Value, u128),
     Alloc(PtrValue, Type),
     IntOp(IntOp, IntValue, IntValue, IntValue),
-    Move(Value, Value),
+    Copy(Value, Value),
 
     Load(Value, PtrValue),
     Store(PtrValue, Value),
@@ -80,9 +80,12 @@ impl Into<TermBlockId> for BlockId {
     }
 }
 
-fn destruct(f: &mut Function) {
-    let pred = pred(f);
+fn construct_ssa(f: &mut Function) {
+    let mut pred = pred(f);
     println!("{pred:?}");
+
+    remove_crit_edge(f, &mut pred);
+
     let dom = dominators(f, &pred);
     println!("{dom:?}");
     let idom = immediate_dominators(&dom);
@@ -95,6 +98,43 @@ fn destruct(f: &mut Function) {
     let adefs = get_alloc_defs(f);
     println!("{adefs:?}");
 
+    phi_lower(f, &mut vdefs, &adefs, &dft, &dom, &idom, &pred);
+}
+
+fn remove_crit_edge(f: &mut Function, pred: &mut BlockIdSet) {
+    for bi in 0..f.blocks.len() {
+        let is: Vec<_> = f.blocks[bi].term.immediate_successor().iter().map(|v| v.target).collect();
+
+        if is.len() < 2 { continue; }
+        for s in is.into_iter() {
+            if pred[s.0].len() < 2 { continue; }
+
+            let ceid = f.blocks.len();
+            f.blocks.push(BasicBlock {
+                args: vec![],
+                insts: vec![],
+                term: Terminator::UncondBranch(s.into()),
+            });
+
+            f.blocks[bi].term.replace(s, BlockId(ceid));
+            pred[s.0].remove(&BlockId(bi));
+            pred[s.0].insert(BlockId(ceid));
+            let mut pr = HashSet::new();
+            pr.insert(BlockId(bi));
+            pred.push(pr);
+        }
+    }
+}
+
+fn phi_lower(
+    f: &mut Function,
+    vdefs: &mut Vec<(BlockId, usize)>,
+    adefs: &HashMap<ValueId, (HashSet<BlockId>, ValueType)>,
+    dft: &BlockIdSet,
+    dom: &BlockIdSet,
+    idom: &[Option<BlockId>],
+    pred: &BlockIdSet,
+) {
     for (i, (d, typ)) in adefs.iter() {
         add_args(f, d, *i, *typ, &dft, &pred);
     }
@@ -128,14 +168,13 @@ fn destruct(f: &mut Function) {
             f.blocks[node.0].args[pi].id = vd;
         }
 
-        for ii in 0..f.blocks[node.0].insts.len() {
-            let i = &mut f.blocks[node.0].insts[ii];
+        for (ii, i) in f.blocks[node.0].insts.iter_mut().enumerate() {
             match i.clone() {
                 Instruction::Load(d, p) => {
                     println!("use {p}");
                     update_reaching_def(&mut rdef, &vdefs, &p.0, ii);
                     if let Some(rdef) = rdef[p.0.0] {
-                        *i = Instruction::Move(d, Value { typ: d.typ, id: rdef });
+                        *i = Instruction::Copy(d, Value { typ: d.typ, id: rdef });
                         println!("{rdef}");
                     }
                 },
@@ -147,7 +186,7 @@ fn destruct(f: &mut Function) {
                     vdefs.push((node, 0));
                     rdef[d.0.0] = Some(vd);
 
-                    *i = Instruction::Move(Value { typ: v.typ, id: vd }, v);
+                    *i = Instruction::Copy(Value { typ: v.typ, id: vd }, v);
                     println!("{}", rdef[d.0.0].unwrap());
                 },
                 _ => {},
@@ -203,7 +242,7 @@ fn get_val_defs(f: &Function) -> Vec<(BlockId, usize)> {
             match i {
                 Instruction::Assign(Value { id, .. }, _)
                     | Instruction::Load(Value { id, .. }, _)
-                    | Instruction::Move(Value { id, .. }, _)
+                    | Instruction::Copy(Value { id, .. }, _)
                     | Instruction::IntOp(_, IntValue { id, .. }, ..)
                     | Instruction::Alloc(PtrValue(id), _)
                 => defs[id.0] = (BlockId(bi), ii),
@@ -373,6 +412,21 @@ impl Terminator {
             Self::Return(_) | Self::None => {},
         }
     }
+
+    fn replace(&mut self, pat: BlockId, to: BlockId) {
+        let update = |tb: &mut TermBlockId| if tb.target == pat {
+            tb.target = to;
+        };
+
+        match self {
+            Self::CondBranch(_, a, b) => {
+                update(a);
+                update(b);
+            },
+            Self::UncondBranch(t) => update(t),
+            Self::Return(_) | Self::None => {},
+        }
+    }
 }
 
 impl Program<'_> {
@@ -385,13 +439,13 @@ impl Program<'_> {
 
 impl Function<'_> {
     pub fn print_cfg(&self) {
-        println!("digraph {} {{", self.name);
+        print!("digraph {} {{\n    ", self.name);
         for (bi, b) in self.blocks.iter().enumerate() {
-            println!("    {bi};");
+            print!("{bi};");
             for ep in b.term.immediate_successor() {
-                println!("    {bi} -> {};", ep.target.0);
+                print!("{bi}->{};", ep.target.0);
             }
         }
-        println!("}}");
+        println!("\n}}");
     }
 }

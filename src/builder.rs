@@ -95,13 +95,20 @@ impl<'a> Builder<'a> {
         d
     }
 
-    pub fn push_store(&mut self, p: PtrValue, v: Value) {
-        self.push_inst(Instruction::Store(p, v));
+    pub fn push_store<V: Into<Value>>(&mut self, p: PtrValue, v: V) {
+        self.push_inst(Instruction::Store(p, v.into()));
     }
 
     pub fn push_int_const(&mut self, size: usize, val: u128) -> IntValue {
         let d = self.alloc_int(size);
         self.push_inst(Instruction::Assign(d.into(), val));
+        d
+    }
+
+    pub fn push_copy<V: Into<Value>>(&mut self, v: V) -> Value {
+        let v = v.into();
+        let d = self.alloc_val(v.typ);
+        self.push_inst(Instruction::Copy(d, v));
         d
     }
 
@@ -122,7 +129,10 @@ impl<'a> Builder<'a> {
     }
 
     pub fn done(mut self) -> Program<'a> {
-        destruct(&mut self.program.functions[0]);
+        for f in self.program.functions.iter_mut() {
+            construct_ssa(f);
+        }
+
         self.program
     }
 }

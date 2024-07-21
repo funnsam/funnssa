@@ -26,8 +26,8 @@ fn main() {
 
     {
         builder.position_at_bb(b);
-        builder.push_store(x, zero.into());
-        builder.push_store(y, zero.into());
+        builder.push_store(x, zero);
+        builder.push_store(y, zero);
         builder.set_uncond_br(d);
     }
 
@@ -45,7 +45,7 @@ fn main() {
         let xv = builder.push_load(x, typ).try_into().unwrap();
         let yv = builder.push_load(y, typ).try_into().unwrap();
         let rv = builder.push_int_op(IntOp::Add, xv, yv);
-        builder.push_store(x, rv.into());
+        builder.push_store(x, rv);
         builder.set_cond_br(zero, a, e);
     }
 

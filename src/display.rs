@@ -10,7 +10,7 @@ impl fmt::Display for TermBlockId {
         write!(f, "{}", self.target)?;
 
         if !self.args.is_empty() {
-            write!(f, " (")?;
+            write!(f, "(")?;
             for (i, a) in self.args.iter().enumerate() {
                 write!(f, "{a}")?;
                 if self.args.len() - 1 != i { write!(f, ", ")?; }
@@ -66,7 +66,7 @@ impl fmt::Display for Instruction {
             Self::Assign(t, v) => write!(f, "{t} = {v}"),
             Self::IntOp(op, t, a, b) => write!(f, "{t} = {op} {a}, {b}"),
             Self::Alloc(v, t) => write!(f, "{v} = alloc {t}"),
-            Self::Move(t, v) => write!(f, "{t} = {v}"),
+            Self::Copy(t, v) => write!(f, "{t} = {v}"),
             Self::Load(t, v) => write!(f, "{t} = load {v}"),
             Self::Store(t, v) => write!(f, "store {t}, {v}"),
         }
