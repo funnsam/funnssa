@@ -6,8 +6,6 @@ pub struct Builder {
     at_fn: Option<FuncId>,
     at_bb: Option<BlockId>,
 
-    next_var: VarId,
-    next_ptr: PtrId,
 }
 
 impl Builder {
@@ -19,15 +17,17 @@ impl Builder {
 
             at_fn: None,
             at_bb: None,
-
-            next_var: VarId(0),
-            next_ptr: PtrId(0),
         }
     }
 
     pub fn create_function(&mut self) -> FuncId {
         let id = FuncId(self.program.functions.len());
-        self.program.functions.push(Function { blocks: vec![] });
+        self.program.functions.push(Function {
+            blocks: vec![],
+
+            next_var: VarId(0),
+            next_ptr: PtrId(0),
+        });
         id
     }
 
@@ -52,15 +52,11 @@ impl Builder {
     }
 
     pub fn alloc_var(&mut self) -> VarId {
-        let id = self.next_var;
-        self.next_var.0 += 1;
-        id
+        self.program.functions[self.at_fn.unwrap().0].alloc_var()
     }
 
     pub fn alloc_ptr(&mut self) -> PtrId {
-        let id = self.next_ptr;
-        self.next_ptr.0 += 1;
-        id
+        self.program.functions[self.at_fn.unwrap().0].alloc_ptr()
     }
 
     pub fn push_inst(&mut self, inst: Instruction) {

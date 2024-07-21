@@ -6,6 +6,8 @@ pub struct Program {
 
 struct Function {
     blocks: Vec<BasicBlock>,
+    next_var: VarId,
+    next_ptr: PtrId,
 }
 
 struct BasicBlock {
@@ -45,6 +47,20 @@ pub struct PtrId(pub(crate) usize);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FuncId(pub(crate) usize);
+
+impl Function {
+    fn alloc_var(&mut self) -> VarId {
+        let id = self.next_var;
+        self.next_var.0 += 1;
+        id
+    }
+
+    fn alloc_ptr(&mut self) -> PtrId {
+        let id = self.next_ptr;
+        self.next_ptr.0 += 1;
+        id
+    }
+}
 
 use core::fmt;
 use std::collections::HashSet;
@@ -140,6 +156,46 @@ fn destruct(f: &mut Function) {
     println!("{idom:?}");
     let dft = dominance_frontiers(f, &idom, &pred);
     println!("{dft:?}");
+
+    let defs = get_defs(f);
+    println!("{defs:?}");
+
+    for d in defs.iter() {
+        add_args(f, d, &dft);
+    }
+}
+
+fn get_defs(f: &Function) -> BlockIdSet {
+    let mut defs = vec![HashSet::new(); f.next_ptr.0];
+    for (bi, b) in f.blocks.iter().enumerate() {
+        for i in b.insts.iter() {
+            match i {
+                Instruction::StorePtr(PtrId(var), _) if !defs[*var].contains(&BlockId(bi))=> {
+                    defs[*var].insert(BlockId(bi));
+                },
+                _ => {},
+            }
+        }
+    }
+
+    defs
+}
+
+fn add_args(f: &mut Function, defs: &HashSet<BlockId>, dft: &BlockIdSet) {
+    let mut added = Vec::new();
+    let mut w = defs.iter().copied().collect::<Vec<BlockId>>();
+
+    while let Some(x) = w.pop() {
+        for y in dft[x.0].iter() {
+            if !added.contains(y) {
+                f.blocks[y.0].args.push(VarId(0));
+                added.push(*y);
+                if !defs.contains(y) {
+                    w.push(*y);
+                }
+            }
+        }
+    }
 }
 
 type BlockIdSet = Vec<HashSet<BlockId>>;
