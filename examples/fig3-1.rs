@@ -16,20 +16,19 @@ fn main() {
     builder.position_at_bb(entry);
     let x = builder.push_alloc(typ.into());
     let y = builder.push_alloc(typ.into());
-    builder.set_term(Terminator::UncondBranch(a));
+    let zero = builder.push_int_const(32, 0);
+    builder.set_uncond_br(a);
 
     {
         builder.position_at_bb(a);
-        let xv = builder.push_load(x, typ).try_into().unwrap();
-        builder.set_term(Terminator::CondBranch(xv, b, c));
+        builder.set_cond_br(zero, b, c);
     }
 
     {
         builder.position_at_bb(b);
-        let zero = builder.int_const(32, 0);
         builder.push_store(x, zero.into());
         builder.push_store(y, zero.into());
-        builder.set_term(Terminator::UncondBranch(d));
+        builder.set_uncond_br(d);
     }
 
     {
@@ -38,7 +37,7 @@ fn main() {
         let yv = builder.push_load(y, typ);
         builder.push_store(x, yv);
         builder.push_store(y, tv);
-        builder.set_term(Terminator::CondBranch(tv.try_into().unwrap(), d, e));
+        builder.set_cond_br(zero, d, e);
     }
 
     {
@@ -47,16 +46,16 @@ fn main() {
         let yv = builder.push_load(y, typ).try_into().unwrap();
         let rv = builder.push_int_op(IntOp::Add, xv, yv);
         builder.push_store(x, rv.into());
-        builder.set_term(Terminator::CondBranch(xv, a, e));
+        builder.set_cond_br(zero, a, e);
     }
 
     {
         builder.position_at_bb(e);
         let xv = builder.push_load(x, typ);
-        builder.set_term(Terminator::Return(Some(xv)));
+        builder.set_ret(Some(xv));
     }
 
     let prog = builder.done();
-    println!("{prog}");
     prog.print_cfg();
+    println!("{prog}");
 }

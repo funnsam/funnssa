@@ -99,14 +99,26 @@ impl<'a> Builder<'a> {
         self.push_inst(Instruction::Store(p, v));
     }
 
-    pub fn int_const(&mut self, size: usize, val: u128) -> IntValue {
+    pub fn push_int_const(&mut self, size: usize, val: u128) -> IntValue {
         let d = self.alloc_int(size);
         self.push_inst(Instruction::Assign(d.into(), val));
         d
     }
 
-    pub fn set_term(&mut self, term: Terminator) {
+    fn set_term(&mut self, term: Terminator) {
         self.program.functions[self.at_fn.unwrap().0].blocks[self.at_bb.unwrap().0].term = term;
+    }
+
+    pub fn set_cond_br(&mut self, c: IntValue, a: BlockId, b: BlockId) {
+        self.set_term(Terminator::CondBranch(c, a.into(), b.into()))
+    }
+
+    pub fn set_uncond_br(&mut self, t: BlockId) {
+        self.set_term(Terminator::UncondBranch(t.into()))
+    }
+
+    pub fn set_ret(&mut self, v: Option<Value>) {
+        self.set_term(Terminator::Return(v))
     }
 
     pub fn done(mut self) -> Program<'a> {

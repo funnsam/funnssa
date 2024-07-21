@@ -1,18 +1,27 @@
-0:
-  br $1(undef, undef)
-
-1: require #0(&0) #7(&1)
-  br #0 $2 $3(#0, #7)
-
-2:
-  br $4(0, 0)
-
-3: require #1(&0) #2(&1)
-  br #1 $4(#2, #1) $5(#2)
-
-4: require #3(&0) #4(&1)
-  #5 = add #3, #4
-  br #3 $1(#5, #4) $5(#5)
-
-5: require #6(&0)
-  ret #6
+fn 0 fig3_1:
+0: 
+  ptr #0 = alloc i32
+  ptr #1 = alloc i32
+  i32 #2 = 0
+  br $1 (#0, #0)
+1: require i32 #0 i32 #0 
+  br i32 #2 $2 $3
+2: 
+  store ptr #0, i32 #2
+  store ptr #1, i32 #2
+  br $4 (#0, #0)
+3: 
+  i32 #3 = load ptr #0
+  i32 #4 = load ptr #1
+  store ptr #0, i32 #4
+  store ptr #1, i32 #3
+  br i32 #2 $4 (#0, #0) $5 (#0, #0)
+4: require i32 #0 i32 #0 
+  i32 #5 = load ptr #0
+  i32 #6 = load ptr #1
+  i32 #7 = add i32 #5, i32 #6
+  store ptr #0, i32 #7
+  br i32 #2 $1 (#0, #0) $5 (#0, #0)
+5: require i32 #0 i32 #0 
+  i32 #8 = load ptr #0
+  ret i32 #8

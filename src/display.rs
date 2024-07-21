@@ -5,6 +5,23 @@ impl fmt::Display for BlockId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "${}", self.0) }
 }
 
+impl fmt::Display for TermBlockId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.target)?;
+
+        if !self.args.is_empty() {
+            write!(f, " (")?;
+            for (i, a) in self.args.iter().enumerate() {
+                write!(f, "{a}")?;
+                if self.args.len() - 1 != i { write!(f, ", ")?; }
+            }
+            write!(f, ")")?;
+        }
+
+        Ok(())
+    }
+}
+
 impl fmt::Display for Program<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (i, fc) in self.functions.iter().enumerate() {
@@ -49,6 +66,7 @@ impl fmt::Display for Instruction {
             Self::Assign(t, v) => write!(f, "{t} = {v}"),
             Self::IntOp(op, t, a, b) => write!(f, "{t} = {op} {a}, {b}"),
             Self::Alloc(v, t) => write!(f, "{v} = alloc {t}"),
+            Self::Move(t, v) => write!(f, "{t} = {v}"),
             Self::Load(t, v) => write!(f, "{t} = load {v}"),
             Self::Store(t, v) => write!(f, "store {t}, {v}"),
         }
