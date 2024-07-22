@@ -173,6 +173,19 @@ impl InstSelector for UrclSelector {
             Terminator::None => {},
         }
     }
+
+    fn peephole_opt(
+        &mut self,
+        area: &[Self::Instruction],
+        bi: Option<BlockId>,
+    ) -> Option<(Vec<Self::Instruction>, usize)> {
+        match area {
+            [UrclInst::Mov(d, v), ..] if d == v => Some((vec![], 1)),
+            [UrclInst::Jmp(Location::Block(t))] if bi.map_or(false, |b| b.0 + 1 == *t) => Some((vec![], 1)),
+            [UrclInst::Imm(d, 0), ..] => Some((vec![UrclInst::Int2(UrclIntOp::Xor, *d, *d, *d)], 1)),
+            _ => None,
+        }
+    }
 }
 
 impl From<IntOp> for UrclIntOp {

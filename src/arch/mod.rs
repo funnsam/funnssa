@@ -11,6 +11,15 @@ pub trait InstSelector: Sized {
     fn select_pre_fn(&mut self, gen: &mut VCodeGen<Self::Instruction>);
     fn select_inst(&mut self, gen: &mut VCodeGen<Self::Instruction>, inst: &Instruction);
     fn select_term(&mut self, gen: &mut VCodeGen<Self::Instruction>, term: &Terminator);
+
+    fn peephole_opt(
+        &mut self,
+        area: &[Self::Instruction],
+        bi: Option<BlockId>,
+    ) -> Option<(Vec<Self::Instruction>, usize)> {
+        _ = (area, bi);
+        None
+    }
 }
 
 pub trait Inst: Sized + fmt::Display {
@@ -128,6 +137,31 @@ impl<'a, I: Inst> VCode<'a, I> {
                 for i in b.iter_mut() {
                     i.apply_alloc(&ra);
                 }
+            }
+        }
+
+        for f in gen.vcode.funcs.iter_mut() {
+            let mut p = |inst: &mut Vec<I>, bi| {
+                let mut h = 0;
+                while h < inst.len() {
+                    if let Some((repl, del)) = sel.peephole_opt(&inst[h..], bi) {
+                        for _ in 0..del {
+                            inst.remove(h);
+                        }
+
+                        for r in repl {
+                            inst.insert(h, r);
+                            h += 1;
+                        }
+                    } else {
+                        h += 1;
+                    }
+                }
+            };
+
+            p(&mut f.pre, None);
+            for (bi, b) in f.body.iter_mut().enumerate() {
+                p(b, Some(BlockId(bi)));
             }
         }
 
