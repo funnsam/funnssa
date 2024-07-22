@@ -78,7 +78,7 @@ impl<'a> Builder<'a> {
     }
 
     pub fn push_int_op(&mut self, op: IntOp, a: IntValue, b: IntValue) -> IntValue {
-        let d = self.alloc_int(a.size);
+        let d = self.alloc_int(op.result_size(a.size, b.size));
         self.push_inst(Instruction::IntOp(op, d, a, b));
         d
     }
@@ -131,6 +131,7 @@ impl<'a> Builder<'a> {
     pub fn done(mut self) -> Program<'a> {
         for f in self.program.functions.iter_mut() {
             f.construct_ssa();
+            f.destruct_from_ssa();
         }
 
         self.program

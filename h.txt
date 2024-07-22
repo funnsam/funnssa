@@ -1,0 +1,30 @@
+minreg 16
+bits 32
+
+.L0
+imm r14 1
+imm r1 0
+imm r2 1000
+
+mov r3 r14
+mov r4 r1
+mov r5 r3
+mov r6 r4
+jmp .L1
+.L1
+mov r7 r5
+mov r8 r6
+add r9 r7 r8
+sub r10 r9 r8
+out %numb r10
+mov r11 r9
+mov r12 r10
+setl r13 r9 r2
+bnz .L3 r13
+jmp .L2
+.L2
+ret
+.L3
+mov r5 r11
+mov r6 r12
+jmp .L1

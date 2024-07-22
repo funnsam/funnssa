@@ -59,6 +59,7 @@ impl Function<'_> {
         println!("{adefs:?}");
 
         self.phi_lower(&mut vdefs, &adefs, &dft, &dom, &idom, &pred);
+        self.delete_alloc(&adefs);
     }
 
     fn remove_crit_edge(&mut self, pred: &mut BlockIdSet) {
@@ -284,5 +285,24 @@ impl Function<'_> {
         }
 
         pred
+    }
+
+    fn delete_alloc(&mut self, def: &HashMap<ValueId, (HashSet<BlockId>, ValueType)>) {
+        let mut mark = Vec::new();
+
+        for b in self.blocks.iter_mut() {
+            mark.clear();
+
+            for (ii, i) in b.insts.iter().enumerate() {
+                match i {
+                    Instruction::Alloc(t, _) if def.contains_key(&t.0) => mark.push(ii),
+                    _ => {},
+                }
+            }
+
+            for i in mark.iter().rev() {
+                b.insts.remove(*i);
+            }
+        }
     }
 }

@@ -32,4 +32,7 @@ fn main() {
     let prog = builder.done();
     prog.print_cfg();
     println!("{prog}");
+
+    let vc = arch::VCode::generate::<arch::urcl::UrclSelector>(prog);
+    println!("{vc}");
 }

@@ -1,4 +1,5 @@
 pub mod algo;
+pub mod arch;
 pub mod builder;
 pub mod types;
 pub mod value;
@@ -29,7 +30,7 @@ struct BasicBlock {
 }
 
 #[derive(Clone)]
-enum Instruction {
+pub enum Instruction {
     Assign(Value, u128),
     Alloc(PtrValue, Type),
     IntOp(IntOp, IntValue, IntValue, IntValue),
@@ -40,7 +41,7 @@ enum Instruction {
 }
 
 #[derive(Clone)]
-enum Terminator {
+pub enum Terminator {
     CondBranch(IntValue, TermBlockId, TermBlockId),
     UncondBranch(TermBlockId),
     Return(Option<Value>),
@@ -48,13 +49,13 @@ enum Terminator {
 }
 
 #[derive(Clone)]
-struct TermBlockId {
-    target: BlockId,
+pub struct TermBlockId {
+    pub target: BlockId,
     args: Vec<ValueId>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, strum::Display)]
-#[strum(serialize_all = "kebab-case")]
+#[strum(serialize_all = "lowercase")]
 pub enum IntOp {
     Add,
     Sub,
@@ -67,6 +68,17 @@ pub enum IntOp {
     And,
     Or,
     Xor,
+
+    ULt,
+    ULe,
+    UGt,
+    UGe,
+    SLt,
+    SLe,
+    SGt,
+    SGe,
+    Eq,
+    Ne,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -158,5 +170,19 @@ impl Function<'_> {
             }
         }
         println!("\n}}");
+    }
+}
+
+impl IntOp {
+    pub fn result_size(&self, a: usize, _b: usize) -> usize {
+        match self {
+            Self::ULt | Self::ULe
+                | Self::UGt | Self::UGe
+                | Self::SLt | Self::SLe
+                | Self::SGt | Self::SGe
+                | Self::Eq | Self::Ne
+            => 1,
+            _ => a,
+        }
     }
 }
