@@ -84,11 +84,3 @@ impl fmt::Display for Terminator {
         }
     }
 }
-
-impl fmt::Display for IntOp {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Add => write!(f, "add"),
-        }
-    }
-}

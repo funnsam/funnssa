@@ -130,7 +130,7 @@ impl<'a> Builder<'a> {
 
     pub fn done(mut self) -> Program<'a> {
         for f in self.program.functions.iter_mut() {
-            construct_ssa(f);
+            f.construct_ssa();
         }
 
         self.program
