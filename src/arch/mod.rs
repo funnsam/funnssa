@@ -1,5 +1,5 @@
 use core::fmt;
-use crate::*;
+use crate::{*, regalloc::*};
 
 pub mod urcl;
 
@@ -15,6 +15,9 @@ pub trait InstSelector: Sized {
 
 pub trait Inst: Sized + fmt::Display {
     type Register: Register;
+
+    fn register_regalloc(&self, ra: &mut impl RegAlloc<Self::Register>);
+    fn apply_alloc(&mut self, ra: &[VReg<Self::Register>]);
 }
 
 pub struct VCodeGen<'a, I: Inst> {
@@ -79,7 +82,7 @@ impl<'a, I: Inst> VCodeGen<'a, I> {
 }
 
 impl<'a, I: Inst> VCode<'a, I> {
-    pub fn generate<S: InstSelector<Instruction = I>>(ir: Program<'a>) -> Self {
+    pub fn generate<S: InstSelector<Instruction = I>, A: RegAlloc<I::Register>>(ir: Program<'a>) -> Self {
         let mut gen = VCodeGen::new();
         let mut sel = S::new();
         for (fi, f) in ir.functions.iter().enumerate() {
@@ -101,40 +104,36 @@ impl<'a, I: Inst> VCode<'a, I> {
             }
         }
 
+        let mut ra = A::new_sized(gen.vreg_alloc.0);
+        for f in gen.vcode.funcs.iter() {
+            for i in f.pre.iter() {
+                i.register_regalloc(&mut ra);
+                ra.next();
+            }
+
+            for b in f.body.iter() {
+                for i in b.iter() {
+                    i.register_regalloc(&mut ra);
+                ra.next();
+                }
+            }
+        }
+        let ra = ra.alloc_regs();
+        for f in gen.vcode.funcs.iter_mut() {
+            for i in f.pre.iter_mut() {
+                i.apply_alloc(&ra);
+            }
+
+            for b in f.body.iter_mut() {
+                for i in b.iter_mut() {
+                    i.apply_alloc(&ra);
+                }
+            }
+        }
+
         gen.vcode
     }
 }
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum VReg<R: Register> {
-    Virtual(usize),
-    Real(R),
-    Spilled(usize),
-}
-
-impl<R: Register> fmt::Display for VReg<R> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Virtual(v) => write!(f, "v{v}"),
-            Self::Real(r) => r.fmt(f),
-            Self::Spilled(v) => write!(f, "s{v}"),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct VRegAlloc(usize);
-
-impl VRegAlloc {
-    pub fn alloc_virtual<R: Register>(&mut self) -> VReg<R> {
-        let id = self.0;
-        self.0 += 1;
-        VReg::Virtual(id)
-    }
-}
-
-pub trait Register: Sized + Clone + Copy + fmt::Display + Eq + core::hash::Hash {}
-impl<T: Sized + Clone + Copy + fmt::Display + Eq + core::hash::Hash> Register for T {}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Location {

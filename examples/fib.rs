@@ -34,10 +34,11 @@ fn main() {
     builder.position_at_bb(exit);
     builder.set_ret(None);
 
+    println!("{builder}");
     let prog = builder.done();
     prog.print_cfg();
     println!("{prog}");
 
-    let vc = arch::VCode::generate::<arch::urcl::UrclSelector>(prog);
+    let vc = arch::VCode::generate::<arch::urcl::UrclSelector, regalloc::linear::LinearAlloc<_>>(prog);
     println!("{vc}");
 }

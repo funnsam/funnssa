@@ -1,29 +1,25 @@
-minreg 16
-bits 32
-
-.L0
-imm r14 1
-imm r1 0
-imm r2 1000
-mov r3 r14
-mov r4 r1
-mov r5 r3
-mov r6 r4
-jmp .L1
-.L1
-mov r7 r5
-mov r8 r6
-add r9 r7 r8
-sub r10 r9 r8
-out %numb r10
-mov r11 r9
-mov r12 r10
-setl r13 r9 r2
-bnz .L3 r13
-jmp .L2
-.L2
-ret
-.L3
-mov r5 r11
-mov r6 r12
-jmp .L1
+fn 0 fib:
+0: 
+  i32 #2 = 1
+  i32 #3 = 0
+  i32 #4 = 1000
+  i32 #10 = i32 #2
+  i32 #11 = i32 #3
+  i32 #12 = i32 #11
+  i32 #13 = i32 #10
+  br $1
+1: 
+  i32 #5 = i32 #13
+  i32 #6 = i32 #12
+  i32 #7 = add i32 #5, i32 #6
+  i32 #8 = sub i32 #7, i32 #6
+  i32 #14 = i32 #7
+  i32 #15 = i32 #8
+  i1 #9 = ult i32 #7, i32 #4
+  br i1 #9 $3 $2
+2: 
+  ret
+3: 
+  i32 #12 = i32 #15
+  i32 #13 = i32 #14
+  br $1

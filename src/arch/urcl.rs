@@ -54,8 +54,70 @@ pub enum UrclReg {
     R7,
 }
 
+impl Register for UrclReg {
+    fn get_regs() -> &'static [Self] {
+        &[Self::R1, Self::R2, Self::R3, Self::R4, Self::R5, Self::R6, Self::R7]
+    }
+
+    // fn get_scratch() -> &'static [Self] {
+    //     &[Self::R6, Self::R7]
+    // }
+}
+
 impl Inst for UrclInst {
     type Register = UrclReg;
+
+    fn register_regalloc(&self, ra: &mut impl RegAlloc<UrclReg>) {
+        match self {
+            Self::Int2(_, d, a, b) => {
+                ra.define(*d);
+                ra.add_use(*a);
+                ra.add_use(*b);
+            },
+            Self::Mov(d, v) => {
+                ra.define(*d);
+                ra.add_use(*v);
+                ra.coalesce_move(*v, *d);
+            },
+            Self::Imm(d, _) => ra.define(*d),
+            Self::Bnz(_, c) => ra.add_use(*c),
+            Self::Ret | Self::Jmp(_) => {},
+        }
+    }
+
+    fn apply_alloc(&mut self, ra: &[VReg<UrclReg>]) {
+        let apply = |r: &mut VReg<UrclReg>| if let VReg::Virtual(v) = r {
+            *r = ra[*v];
+        };
+
+        match self {
+            Self::Int2(_, d, a, b) => {
+                apply(d);
+                apply(a);
+                apply(b);
+            },
+            Self::Mov(d, v) => {
+                apply(d);
+                apply(v);
+            },
+            Self::Imm(d, _) => apply(d),
+            Self::Bnz(_, c) => apply(c),
+            Self::Ret | Self::Jmp(_) => {},
+        }
+    }
+}
+
+impl fmt::Display for UrclInst {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Int2(op, d, a, b) => writeln!(f, "{op} {d} {a} {b}"),
+            Self::Mov(d, v) => writeln!(f, "mov {d} {v}"),
+            Self::Imm(d, v) => writeln!(f, "imm {d} {v}"),
+            Self::Jmp(d) => writeln!(f, "jmp {d}"),
+            Self::Bnz(d, c) => writeln!(f, "bnz {d} {c}"),
+            Self::Ret => writeln!(f, "ret"),
+        }
+    }
 }
 
 impl InstSelector for UrclSelector {
@@ -109,19 +171,6 @@ impl InstSelector for UrclSelector {
                 gen.push_inst(UrclInst::Ret);
             },
             Terminator::None => {},
-        }
-    }
-}
-
-impl fmt::Display for UrclInst {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Int2(op, d, a, b) => writeln!(f, "{op} {d} {a} {b}"),
-            Self::Mov(d, v) => writeln!(f, "mov {d} {v}"),
-            Self::Imm(d, v) => writeln!(f, "imm {d} {v}"),
-            Self::Jmp(d) => writeln!(f, "jmp {d}"),
-            Self::Bnz(d, c) => writeln!(f, "bnz {d} {c}"),
-            Self::Ret => writeln!(f, "ret"),
         }
     }
 }

@@ -143,3 +143,9 @@ impl<'a> Builder<'a> {
         self.program
     }
 }
+
+impl core::fmt::Display for Builder<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.program.fmt(f)
+    }
+}

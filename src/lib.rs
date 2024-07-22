@@ -14,6 +14,7 @@
 pub mod algo;
 pub mod arch;
 pub mod builder;
+pub mod regalloc;
 pub mod types;
 pub mod value;
 mod display;
