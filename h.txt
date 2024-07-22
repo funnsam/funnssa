@@ -5,7 +5,6 @@ bits 32
 imm r14 1
 imm r1 0
 imm r2 1000
-
 mov r3 r14
 mov r4 r1
 mov r5 r3

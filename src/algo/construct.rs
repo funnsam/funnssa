@@ -3,7 +3,7 @@ use crate::*;
 type BlockIdSet = Vec<HashSet<BlockId>>;
 
 fn dominates_inst(bb2: BlockId, inst2: usize, bb1: BlockId, inst1: usize, dom: &BlockIdSet) -> bool {
-    return dom[bb1.0].contains(&bb2) || (bb1 == bb2 && inst1 <= inst2);
+    dom[bb1.0].contains(&bb2) || (bb1 == bb2 && inst1 <= inst2)
 }
 
 fn immediate_dominators(dom: &BlockIdSet) -> Vec<Option<BlockId>> {
@@ -97,16 +97,16 @@ impl Function<'_> {
         pred: &BlockIdSet,
     ) {
         for (i, (d, typ)) in adefs.iter() {
-            self.add_args(d, *i, *typ, &dft, &pred);
+            self.add_args(d, *i, *typ, dft, pred);
         }
 
         let mut rdef: Vec<Option<ValueId>> = vec![None; self.val_alloc.0.0];
-        dom_tree_iter(&idom, BlockId(0), &mut |node| {
+        dom_tree_iter(idom, BlockId(0), &mut |node| {
             let update_reaching_def = |rdef: &mut Vec<Option<ValueId>>, vdefs: &Vec<(BlockId, usize)>, v: &ValueId, ii| {
                 let mut r = rdef[v.0];
                 while let Some(cr) = r {
                     let def_r = vdefs[cr.0];
-                    if dominates_inst(def_r.0, def_r.1, node, ii, &dom) { break; }
+                    if dominates_inst(def_r.0, def_r.1, node, ii, dom) { break; }
 
                     r = rdef[cr.0];
                 }
@@ -115,7 +115,7 @@ impl Function<'_> {
 
             for pi in 0..self.blocks[node.0].args.len() {
                 let parm = self.blocks[node.0].args[pi];
-                update_reaching_def(&mut rdef, &vdefs, &parm.id, 0);
+                update_reaching_def(&mut rdef, vdefs, &parm.id, 0);
                 let vd = self.val_alloc.alloc_val();
                 rdef.push(rdef[parm.id.0]);
                 vdefs.push((node, 0));
@@ -126,13 +126,13 @@ impl Function<'_> {
             for (ii, i) in self.blocks[node.0].insts.iter_mut().enumerate() {
                 match i.clone() {
                     Instruction::Load(d, p) => {
-                        update_reaching_def(&mut rdef, &vdefs, &p.0, ii);
+                        update_reaching_def(&mut rdef, vdefs, &p.0, ii);
                         if let Some(rdef) = rdef[p.0.0] {
                             *i = Instruction::Copy(d, Value { typ: d.typ, id: rdef });
                         }
                     },
                     Instruction::Store(d, v) => {
-                        update_reaching_def(&mut rdef, &vdefs, &d.0, ii);
+                        update_reaching_def(&mut rdef, vdefs, &d.0, ii);
                         let vd = self.val_alloc.alloc_val();
                         rdef.push(rdef[d.0.0]);
                         vdefs.push((node, 0));
@@ -146,7 +146,7 @@ impl Function<'_> {
 
             for succ in self.blocks[node.0].term.immediate_successor_mut() {
                 for v in succ.args.iter_mut() {
-                    update_reaching_def(&mut rdef, &vdefs, v, usize::MAX);
+                    update_reaching_def(&mut rdef, vdefs, v, usize::MAX);
                     if let Some(rdef) = rdef[v.0] {
                         *v = rdef;
                     }
@@ -159,21 +159,17 @@ impl Function<'_> {
         let mut defs = HashMap::new();
         for b in self.blocks.iter() {
             for i in b.insts.iter().rev() {
-                match i {
-                    Instruction::Alloc(v, t) => {
-                        defs.insert(v.0, (HashSet::new(), t.clone().into()));
-                    },
-                    _ => {},
+                if let Instruction::Alloc(v, t) = i {
+                    defs.insert(v.0, (HashSet::new(), t.clone().into()));
                 }
             }
         }
         for (bi, b) in self.blocks.iter().enumerate() {
             for i in b.insts.iter().rev() {
-                match i {
-                    Instruction::Store(ptr, _) => if let Some(d) = defs.get_mut(&ptr.0) {
+                if let Instruction::Store(ptr, _) = i {
+                    if let Some(d) = defs.get_mut(&ptr.0) {
                         d.0.insert(BlockId(bi));
-                    },
-                    _ => {},
+                    }
                 }
             }
         }
@@ -250,7 +246,7 @@ impl Function<'_> {
         let mut dom = vec![HashSet::new(); self.blocks.len()];
         dom[0].insert(BlockId(0));
 
-        let all_v = (0..self.blocks.len()).map(|b| BlockId(b)).collect::<HashSet<BlockId>>();
+        let all_v = (0..self.blocks.len()).map(BlockId).collect::<HashSet<BlockId>>();
         for (vi, _) in self.blocks.iter().enumerate().skip(1) {
             dom[vi] = all_v.clone();
         }
@@ -263,7 +259,7 @@ impl Function<'_> {
             for (vi, _) in self.blocks.iter().enumerate().skip(1) {
                 let mut new = all_v.clone();
                 for q in pred[vi].iter() {
-                    new.retain(|e| dom[q.0].contains(&e));
+                    new.retain(|e| dom[q.0].contains(e));
                 }
 
                 new.insert(BlockId(vi));

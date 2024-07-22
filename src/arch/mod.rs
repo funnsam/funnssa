@@ -36,8 +36,14 @@ pub struct VFunction<'a, I: Inst> {
     body: Vec<Vec<I>>,
 }
 
+impl<'a, I: Inst> Default for VCodeGen<'a, I> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a, I: Inst> VCodeGen<'a, I> {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             vcode: VCode {
                 funcs: Vec::new(),
@@ -136,9 +142,9 @@ pub enum Location {
     Block(usize),
 }
 
-impl Into<Location> for BlockId {
-    fn into(self) -> Location {
-        Location::Block(self.0)
+impl From<BlockId> for Location {
+    fn from(val: BlockId) -> Self {
+        Self::Block(val.0)
     }
 }
 

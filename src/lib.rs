@@ -1,3 +1,16 @@
+#![warn(
+    clippy::complexity,
+    clippy::correctness,
+    clippy::perf,
+    clippy::nursery,
+    clippy::suspicious,
+    clippy::style
+)]
+#![allow(
+    clippy::semicolon_inside_block,
+    clippy::just_underscores_and_digits
+)]
+
 pub mod algo;
 pub mod arch;
 pub mod builder;
@@ -31,10 +44,10 @@ struct BasicBlock {
 
 #[derive(Clone)]
 pub enum Instruction {
-    Assign(Value, u128),
     Alloc(PtrValue, Type),
-    IntOp(IntOp, IntValue, IntValue, IntValue),
+    Assign(Value, u128),
     Copy(Value, Value),
+    IntOp(IntOp, IntValue, IntValue, IntValue),
 
     Load(Value, PtrValue),
     Store(PtrValue, Value),
@@ -98,9 +111,9 @@ impl ValAlloc {
     }
 }
 
-impl Into<TermBlockId> for BlockId {
-    fn into(self) -> TermBlockId {
-        TermBlockId { target: self, args: vec![] }
+impl From<BlockId> for TermBlockId {
+    fn from(val: BlockId) -> Self {
+        Self { target: val, args: vec![] }
     }
 }
 
@@ -174,7 +187,7 @@ impl Function<'_> {
 }
 
 impl IntOp {
-    pub fn result_size(&self, a: usize, _b: usize) -> usize {
+    pub const fn result_size(&self, a: usize, _b: usize) -> usize {
         match self {
             Self::ULt | Self::ULe
                 | Self::UGt | Self::UGe

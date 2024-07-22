@@ -13,20 +13,20 @@ pub enum ValueType {
     Ptr,
 }
 
-impl Into<ValueType> for Type {
-    fn into(self) -> ValueType {
-        match self {
-            Self::Int(s) => ValueType::Int(s),
-            Self::Ptr | Self::Array(..) => ValueType::Ptr,
+impl From<Type> for ValueType {
+    fn from(val: Type) -> Self {
+        match val {
+            Type::Int(s) => Self::Int(s),
+            Type::Ptr | Type::Array(..) => Self::Ptr,
         }
     }
 }
 
-impl Into<Type> for ValueType {
-    fn into(self) -> Type {
-        match self {
-            Self::Int(s) => Type::Int(s),
-            Self::Ptr => Type::Ptr,
+impl From<ValueType> for Type {
+    fn from(val: ValueType) -> Self {
+        match val {
+            ValueType::Int(s) => Self::Int(s),
+            ValueType::Ptr => Self::Ptr,
         }
     }
 }

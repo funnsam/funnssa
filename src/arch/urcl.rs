@@ -1,5 +1,5 @@
 use core::fmt;
-use crate::{*, arch::*};
+use crate::arch::*;
 
 pub struct UrclSelector {
 }

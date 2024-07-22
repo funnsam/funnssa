@@ -8,8 +8,14 @@ pub struct Builder<'a> {
 
 }
 
+impl<'a> Default for Builder<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a> Builder<'a> {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             program: Program {
                 functions: vec![],

@@ -19,11 +19,11 @@ pub struct IntValue {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct PtrValue(pub(crate) ValueId);
 
-impl Into<Value> for IntValue {
-    fn into(self) -> Value {
-        Value {
-            typ: ValueType::Int(self.size),
-            id: self.id,
+impl From<IntValue> for Value {
+    fn from(val: IntValue) -> Self {
+        Self {
+            typ: ValueType::Int(val.size),
+            id: val.id,
         }
     }
 }
