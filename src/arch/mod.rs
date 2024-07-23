@@ -16,24 +16,25 @@ pub trait InstSelector: Sized {
     fn select_pre_fn(&mut self, gen: &mut VCodeGen<Self::Instruction>);
     fn select_inst(&mut self, gen: &mut VCodeGen<Self::Instruction>, inst: &Instruction);
     fn select_term(&mut self, gen: &mut VCodeGen<Self::Instruction>, term: &Terminator);
-
-    fn apply_mandatory_transforms(&mut self, vcode: &mut VCode<Self::Instruction>);
-
-    fn peephole_opt(
-        &mut self,
-        area: &[Self::Instruction],
-        bi: Option<BlockId>,
-    ) -> Option<(Vec<Self::Instruction>, usize)> {
-        _ = (area, bi);
-        None
-    }
 }
 
-pub trait Inst: Sized + fmt::Display {
+pub trait Inst: Sized {
     type Register: Register;
 
     fn register_regalloc(&self, ra: &mut impl RegAlloc<Self::Register>);
     fn apply_alloc(&mut self, ra: &[VReg<Self::Register>]);
+
+    fn apply_mandatory_transforms(vcode: &mut VCode<Self>);
+
+    fn peephole_opt(
+        area: &[Self],
+        bi: Option<BlockId>,
+    ) -> Option<(Vec<Self>, usize)> {
+        _ = (area, bi);
+        None
+    }
+
+    fn emit_assembly<W: std::io::Write>(f: &mut W, vcode: &VCode<Self>) -> std::io::Result<()>;
 }
 
 pub struct VCodeGen<'a, I: Inst> {
@@ -147,13 +148,13 @@ impl<'a, I: Inst> VCode<'a, I> {
             }
         }
 
-        sel.apply_mandatory_transforms(&mut gen.vcode);
+        I::apply_mandatory_transforms(&mut gen.vcode);
 
         for f in gen.vcode.funcs.iter_mut() {
-            let mut p = |inst: &mut Vec<I>, bi| {
+            let p = |inst: &mut Vec<I>, bi| {
                 let mut h = 0;
                 while h < inst.len() {
-                    if let Some((repl, del)) = sel.peephole_opt(&inst[h..], bi) {
+                    if let Some((repl, del)) = I::peephole_opt(&inst[h..], bi) {
                         for _ in 0..del {
                             inst.remove(h);
                         }
@@ -176,6 +177,10 @@ impl<'a, I: Inst> VCode<'a, I> {
 
         gen.vcode
     }
+
+    pub fn emit_assembly<W: std::io::Write>(&self, f: &mut W) -> std::io::Result<()> {
+        I::emit_assembly(f, self)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -190,7 +195,7 @@ impl From<BlockId> for Location {
     }
 }
 
-impl<I: Inst> fmt::Display for VCode<'_, I> {
+impl<I: Inst + fmt::Display> fmt::Display for VCode<'_, I> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for n in self.funcs.iter() {
             n.fmt(f)?;
@@ -200,16 +205,16 @@ impl<I: Inst> fmt::Display for VCode<'_, I> {
     }
 }
 
-impl<I: Inst> fmt::Display for VFunction<'_, I> {
+impl<I: Inst + fmt::Display> fmt::Display for VFunction<'_, I> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "F{}:", self.name)?;
         for i in self.pre.iter() {
-            i.fmt(f)?;
+            writeln!(f, "{i}")?;
         }
         for (bi, b) in self.body.iter().enumerate() {
             writeln!(f, ".L{bi}:")?;
             for i in b.iter() {
-                i.fmt(f)?;
+                writeln!(f, "{i}")?;
             }
         }
         Ok(())
