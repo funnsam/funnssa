@@ -13,7 +13,7 @@ pub trait InstSelector: Sized {
 
     fn new() -> Self;
 
-    fn select_pre_fn(&mut self, gen: &mut VCodeGen<Self::Instruction>);
+    fn select_pre_fn(&mut self, gen: &mut VCodeGen<Self::Instruction>, args: &[ValueType]);
     fn select_inst(&mut self, gen: &mut VCodeGen<Self::Instruction>, inst: &Instruction);
     fn select_term(&mut self, gen: &mut VCodeGen<Self::Instruction>, term: &Terminator);
 }
@@ -96,6 +96,10 @@ impl<'a, I: Inst> VCodeGen<'a, I> {
             vr
         }
     }
+
+    pub fn get_arg_vreg(&mut self, a: usize) -> VReg<I::Register> {
+        self.get_value_vreg(ValueId(a))
+    }
 }
 
 impl<'a, I: Inst> VCode<'a, I> {
@@ -110,7 +114,7 @@ impl<'a, I: Inst> VCode<'a, I> {
                 pre: vec![],
                 body: vec![],
             });
-            sel.select_pre_fn(&mut gen);
+            sel.select_pre_fn(&mut gen, &f.arguments);
 
             for b in f.blocks.iter() {
                 gen.vcode.funcs.last_mut().unwrap().body.push(vec![]);
@@ -192,6 +196,12 @@ pub enum Location {
 impl From<BlockId> for Location {
     fn from(val: BlockId) -> Self {
         Self::Block(val.0)
+    }
+}
+
+impl From<FuncId> for Location {
+    fn from(val: FuncId) -> Self {
+        Self::Function(val.0)
     }
 }
 

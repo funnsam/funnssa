@@ -60,6 +60,29 @@ impl Function<'_> {
 
         self.phi_lower(&mut vdefs, &adefs, &dft, &dom, &idom, &pred);
         self.delete_alloc(&adefs);
+        self.copy_elision(&dom);
+    }
+
+    fn copy_elision(&mut self, dom: &BlockIdSet) {
+        let mut value = HashMap::new();
+
+        for (bi, b) in self.blocks.iter().enumerate() {
+            for (ii, i) in b.insts.iter().enumerate() {
+                if let Instruction::Copy(d, v) = i {
+                    value.insert(d.id, (v.id, BlockId(bi), ii));
+                }
+            }
+        }
+
+        for (bi, b) in self.blocks.iter_mut().enumerate() {
+            for (ii, i) in b.insts.iter_mut().enumerate() {
+                for (repl, (with, dbi, dii)) in value.iter() {
+                    if dominates_inst(BlockId(bi), ii, *dbi, *dii, dom) {
+                        i.replace_rhs(*repl, *with);
+                    }
+                }
+            }
+        }
     }
 
     fn remove_crit_edge(&mut self, pred: &mut BlockIdSet) {

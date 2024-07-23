@@ -31,6 +31,8 @@ pub struct Program<'a> {
 #[derive(Clone)]
 struct Function<'a> {
     name: &'a str,
+    arguments: Vec<ValueType>,
+    returns: Option<ValueType>,
     blocks: Vec<BasicBlock>,
 
     val_alloc: ValAlloc,
@@ -49,6 +51,7 @@ pub enum Instruction {
     Assign(Value, u128),
     Copy(Value, Value),
     IntOp(IntOp, IntValue, IntValue, IntValue),
+    Call(Option<Value>, FuncId, Vec<Value>),
 
     Load(Value, PtrValue),
     Store(PtrValue, Value),
@@ -115,6 +118,29 @@ impl ValAlloc {
 impl From<BlockId> for TermBlockId {
     fn from(val: BlockId) -> Self {
         Self { target: val, args: vec![] }
+    }
+}
+
+impl Instruction {
+    fn replace_rhs(&mut self, repl: ValueId, with: ValueId) {
+        let r = |r: &mut ValueId| if *r == repl { *r = with; };
+
+        match self {
+            Self::Alloc(..)
+            | Self::Assign(..)
+            | Self::Load(..) => {},
+
+            Self::Copy(_, v) => r(&mut v.id),
+            Self::IntOp(_, _, a, b) => {
+                r(&mut a.id);
+                r(&mut b.id);
+            },
+            Self::Call(_, _, a) => for a in a.iter_mut() {
+                r(&mut a.id);
+            },
+
+            Self::Store(_, v) => r(&mut v.id),
+        }
     }
 }
 

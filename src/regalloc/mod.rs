@@ -23,6 +23,12 @@ pub enum VReg<R: Register> {
     Spilled(usize),
 }
 
+impl<R: Register> From<R> for VReg<R> {
+    fn from(value: R) -> Self {
+        Self::Real(value)
+    }
+}
+
 impl<R: Register> fmt::Display for VReg<R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

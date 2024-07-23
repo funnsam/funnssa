@@ -26,15 +26,21 @@ impl<'a> Builder<'a> {
         }
     }
 
-    pub fn create_function(&mut self, name: &'a str) -> FuncId {
+    pub fn create_function(&mut self, name: &'a str, at: Vec<ValueType>, rt: Option<ValueType>) -> (FuncId, Vec<Value>) {
         let id = FuncId(self.program.functions.len());
+        let args = at.iter().copied().enumerate().map(|(id, typ)| Value {
+            typ,
+            id: ValueId(id),
+        }).collect::<Vec<_>>();
         self.program.functions.push(Function {
             name,
             blocks: vec![],
+            arguments: at,
+            returns: rt,
 
-            val_alloc: ValAlloc(ValueId(0)),
+            val_alloc: ValAlloc(ValueId(args.len())),
         });
-        id
+        (id, args)
     }
 
     pub fn position_at_function(&mut self, f: FuncId) {
@@ -118,6 +124,12 @@ impl<'a> Builder<'a> {
         d
     }
 
+    pub fn push_call(&mut self, f: FuncId, a: Vec<Value>) -> Option<Value> {
+        let d = self.program.functions[f.0].returns.map(|t| self.alloc_val(t));
+        self.push_inst(Instruction::Call(d, f, a));
+        d
+    }
+
     fn set_term(&mut self, term: Terminator) {
         self.program.functions[self.at_fn.unwrap().0].blocks[self.at_bb.unwrap().0].term = term;
     }
@@ -136,8 +148,7 @@ impl<'a> Builder<'a> {
 
     pub fn done(mut self) -> Program<'a> {
         for f in self.program.functions.iter_mut() {
-            f.construct_ssa();
-            f.destruct_from_ssa();
+            f.do_everything();
         }
 
         self.program

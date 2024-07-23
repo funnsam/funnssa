@@ -5,6 +5,10 @@ impl fmt::Display for BlockId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "${}", self.0) }
 }
 
+impl fmt::Display for FuncId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "fn{}", self.0) }
+}
+
 impl fmt::Display for TermBlockId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.target)?;
@@ -67,6 +71,12 @@ impl fmt::Display for Instruction {
             Self::IntOp(op, t, a, b) => write!(f, "{t} = {op} {a}, {b}"),
             Self::Alloc(v, t) => write!(f, "{v} = alloc {t}"),
             Self::Copy(t, v) => write!(f, "{t} = {v}"),
+            Self::Call(r, n, a) => {
+                if let Some(r) = r { write!(f, "{r} = ")?; }
+                write!(f, "call {n} ")?;
+                for a in a.iter() { write!(f, "{a} ")?; }
+                Ok(())
+            },
             Self::Load(t, v) => write!(f, "{t} = load {v}"),
             Self::Store(t, v) => write!(f, "store {t}, {v}"),
         }

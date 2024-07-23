@@ -2,9 +2,17 @@ use funnssa::{*, types::*};
 
 fn main() {
     let mut builder = builder::Builder::new();
-    let fib = builder.create_function("fib");
-    builder.position_at_function(fib );
+    let (start, _) = builder.create_function("_start", vec![], None);
+    let (fib, _) = builder.create_function("fib", vec![], None);
     let typ = ValueType::Int(32);
+
+    builder.position_at_function(start);
+    let l = builder.push_block();
+    builder.position_at_bb(l);
+    let _ = builder.push_call(fib, vec![]);
+    builder.set_ret(None);
+
+    builder.position_at_function(fib);
 
     let entry = builder.push_block();
     let iter = builder.push_block();
