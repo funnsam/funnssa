@@ -1,16 +1,35 @@
+//! # Calling convention
+//! - `R1`: Return value
+//! - `R1` - `R5`: Arguments and temporaries
+//! - `R6` - `R7`: Scratch registers
+
+const CALLEE_SAVE: &[UrclReg] = &[UrclReg::R1, UrclReg::R2, UrclReg::R3, UrclReg::R4, UrclReg::R5];
+
+// markers for addsp
+const SP_INCR: isize = isize::MAX;
+const SP_DECR: isize = isize::MIN;
+
+const SPILL_0: UrclReg = UrclReg::R6;
+const SPILL_1: UrclReg = UrclReg::R7;
+
 use core::fmt;
 use crate::arch::*;
 
 pub struct UrclSelector {
 }
 
+#[derive(Clone)]
 pub enum UrclInst {
     Int2(UrclIntOp, VReg<UrclReg>, VReg<UrclReg>, VReg<UrclReg>),
     Jmp(Location),
     Bnz(Location, VReg<UrclReg>),
     Mov(VReg<UrclReg>, VReg<UrclReg>),
     Imm(VReg<UrclReg>, u128),
-    Ret
+    AddSp(isize),
+    Ret,
+
+    Llod(VReg<UrclReg>, VReg<UrclReg>, isize),
+    Lstr(VReg<UrclReg>, isize, VReg<UrclReg>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, strum::Display)]
@@ -56,7 +75,7 @@ pub enum UrclReg {
 
 impl Register for UrclReg {
     fn get_regs() -> &'static [Self] {
-        &[Self::R1, Self::R2, Self::R3, Self::R4, Self::R5, Self::R6, Self::R7]
+        &[Self::R1, Self::R2, Self::R3, Self::R4, Self::R5]
     }
 
     // fn get_scratch() -> &'static [Self] {
@@ -81,7 +100,15 @@ impl Inst for UrclInst {
             },
             Self::Imm(d, _) => ra.define(*d),
             Self::Bnz(_, c) => ra.add_use(*c),
-            Self::Ret | Self::Jmp(_) => {},
+            Self::Llod(d, b, _) => {
+                ra.define(*d);
+                ra.add_use(*b);
+            },
+            Self::Lstr(b, _, v) => {
+                ra.add_use(*b);
+                ra.add_use(*v);
+            },
+            Self::AddSp(_) | Self::Ret | Self::Jmp(_) => {},
         }
     }
 
@@ -102,7 +129,15 @@ impl Inst for UrclInst {
             },
             Self::Imm(d, _) => apply(d),
             Self::Bnz(_, c) => apply(c),
-            Self::Ret | Self::Jmp(_) => {},
+            Self::Llod(d, b, _) => {
+                apply(d);
+                apply(b);
+            },
+            Self::Lstr(b, _, v) => {
+                apply(b);
+                apply(v);
+            },
+            Self::AddSp(_) | Self::Ret | Self::Jmp(_) => {},
         }
     }
 }
@@ -110,12 +145,16 @@ impl Inst for UrclInst {
 impl fmt::Display for UrclInst {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::AddSp(v) => writeln!(f, "add sp sp {v}"),
             Self::Int2(op, d, a, b) => writeln!(f, "{op} {d} {a} {b}"),
             Self::Mov(d, v) => writeln!(f, "mov {d} {v}"),
             Self::Imm(d, v) => writeln!(f, "imm {d} {v}"),
             Self::Jmp(d) => writeln!(f, "jmp {d}"),
             Self::Bnz(d, c) => writeln!(f, "bnz {d} {c}"),
             Self::Ret => writeln!(f, "ret"),
+
+            Self::Llod(d, b, o) => writeln!(f, "llod {d} {b} {o}"),
+            Self::Lstr(b, o, v) => writeln!(f, "lstr {b} {o} {v}"),
         }
     }
 }
@@ -127,7 +166,11 @@ impl InstSelector for UrclSelector {
         Self {}
     }
 
-    fn select_pre_fn(&mut self, _gen: &mut VCodeGen<Self::Instruction>) {
+    fn select_pre_fn(&mut self, gen: &mut VCodeGen<Self::Instruction>) {
+        gen.push_inst(UrclInst::AddSp(SP_DECR));
+        for (i, r) in CALLEE_SAVE.iter().enumerate() {
+            gen.push_inst(UrclInst::Lstr(VReg::Real(UrclReg::Sp), -(i as isize), VReg::Real(*r)));
+        }
     }
 
     fn select_inst(&mut self, gen: &mut VCodeGen<Self::Instruction>, inst: &Instruction) {
@@ -162,15 +205,115 @@ impl InstSelector for UrclSelector {
             Terminator::UncondBranch(t) => {
                 gen.push_inst(UrclInst::Jmp(t.target.into()));
             },
-            Terminator::Return(Some(r)) => {
-                let r = gen.get_value_vreg(r.id);
-                gen.push_inst(UrclInst::Mov(VReg::Real(UrclReg::R1), r));
-                gen.push_inst(UrclInst::Ret);
-            },
-            Terminator::Return(None) => {
+            Terminator::Return(r) => {
+                if let Some(r) = r {
+                    let r = gen.get_value_vreg(r.id);
+                    gen.push_inst(UrclInst::Mov(VReg::Real(UrclReg::R1), r));
+                }
+
+                for (i, r) in CALLEE_SAVE.iter().enumerate().skip(r.is_some() as _) {
+                    gen.push_inst(UrclInst::Llod(VReg::Real(*r), VReg::Real(UrclReg::Sp), -(i as isize)));
+                }
+                gen.push_inst(UrclInst::AddSp(SP_INCR));
                 gen.push_inst(UrclInst::Ret);
             },
             Terminator::None => {},
+        }
+    }
+
+    fn apply_mandatory_transforms(&mut self, vcode: &mut VCode<Self::Instruction>) {
+        for f in vcode.funcs.iter_mut() {
+            let mut frame_size = 0;
+            let mut unspill = |inst: &mut Vec<UrclInst>| {
+                let mut i = 0;
+                while i < inst.len() {
+                    let mut d_spilled = None;
+                    let mut a_spilled = None;
+                    let mut b_spilled = None;
+                    let mut ud = |d: &mut VReg<UrclReg>| if let VReg::Spilled(s) = d {
+                        d_spilled = Some(*s);
+                        *d = VReg::Real(SPILL_0);
+                    };
+                    let mut ua = |a: &mut VReg<UrclReg>| if let VReg::Spilled(s) = a {
+                        a_spilled = Some(*s);
+                        *a = VReg::Real(SPILL_0);
+                    };
+                    let mut ub = |b: &mut VReg<UrclReg>| if let VReg::Spilled(s) = b {
+                        b_spilled = Some(*s);
+                        *b = VReg::Real(SPILL_1);
+                    };
+
+                    match &mut inst[i] {
+                        UrclInst::Int2(_, d, a, b) => {
+                            ud(d);
+                            ua(a);
+                            ub(b);
+                        },
+                        UrclInst::Mov(d, v) => {
+                            ud(d);
+                            ua(v);
+                        },
+                        UrclInst::Imm(d, _) => ud(d),
+                        UrclInst::Bnz(_, c) => ua(c),
+                        UrclInst::Llod(d, b, _) => {
+                            ud(d);
+                            ua(b);
+                        },
+                        UrclInst::Lstr(b, _, v) => {
+                            ua(b);
+                            ub(v);
+                        },
+                        UrclInst::AddSp(_) | UrclInst::Ret | UrclInst::Jmp(_) => {},
+                    }
+
+                    let stk = |i| -(CALLEE_SAVE.len() as isize + i as isize);
+
+                    if let Some(d) = d_spilled {
+                        frame_size = frame_size.max(d + 1);
+                        inst.insert(
+                            i + 1,
+                            UrclInst::Lstr(VReg::Real(UrclReg::Sp), stk(d), VReg::Real(SPILL_0)),
+                        );
+                    }
+                    if let Some(a) = a_spilled {
+                        frame_size = frame_size.max(a + 1);
+                        inst.insert(
+                            i,
+                            UrclInst::Llod(VReg::Real(SPILL_0), VReg::Real(UrclReg::Sp), stk(a)),
+                        );
+                    }
+                    if let Some(b) = b_spilled {
+                        frame_size = frame_size.max(b + 1);
+                        inst.insert(
+                            i,
+                            UrclInst::Llod(VReg::Real(SPILL_1), VReg::Real(UrclReg::Sp), stk(b)),
+                        );
+                    }
+
+                    i += 1 + d_spilled.is_some() as usize + a_spilled.is_some() as usize + b_spilled.is_some() as usize;
+                }
+            };
+
+            unspill(&mut f.pre);
+            for b in f.body.iter_mut() {
+                unspill(b);
+            }
+
+            let frame_size = (frame_size + CALLEE_SAVE.len()) as isize;
+            let update = |inst: &mut Vec<UrclInst>| for i in inst.iter_mut() {
+                if let UrclInst::AddSp(v) = i {
+                    match *v {
+                        SP_INCR => *v = frame_size,
+                        SP_DECR => *v = -frame_size,
+                        _ => {},
+                    }
+                }
+            };
+
+            update(&mut f.pre);
+            for b in f.body.iter_mut() {
+                update(b);
+            }
         }
     }
 

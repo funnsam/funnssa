@@ -5,3 +5,12 @@ edition = "2021"
 
 [dependencies]
 strum = { version = "0.26.3", features = ["derive"] }
+
+[features]
+# TODO: remove urcl as default when x86_64 is done
+default = ["arch-common", "arch-urcl"]
+arch-common = ["arch-x86_64", "arch-aarch64"]
+arch-x86_64 = []
+arch-aarch64 = []
+arch-urcl = []
+arch-native = []

@@ -1,7 +1,12 @@
 use core::fmt;
 use crate::{*, regalloc::*};
 
+#[cfg(any(feature = "arch-aarch64", all(feature = "arch-native", target_arch = "aarch64")))]
+pub mod aarch64;
+#[cfg(feature = "arch-urcl")]
 pub mod urcl;
+#[cfg(any(feature = "arch-x86_64", all(feature = "arch-native", target_arch = "x86_64")))]
+pub mod x86_64;
 
 pub trait InstSelector: Sized {
     type Instruction: Inst;
@@ -11,6 +16,8 @@ pub trait InstSelector: Sized {
     fn select_pre_fn(&mut self, gen: &mut VCodeGen<Self::Instruction>);
     fn select_inst(&mut self, gen: &mut VCodeGen<Self::Instruction>, inst: &Instruction);
     fn select_term(&mut self, gen: &mut VCodeGen<Self::Instruction>, term: &Terminator);
+
+    fn apply_mandatory_transforms(&mut self, vcode: &mut VCode<Self::Instruction>);
 
     fn peephole_opt(
         &mut self,
@@ -139,6 +146,8 @@ impl<'a, I: Inst> VCode<'a, I> {
                 }
             }
         }
+
+        sel.apply_mandatory_transforms(&mut gen.vcode);
 
         for f in gen.vcode.funcs.iter_mut() {
             let mut p = |inst: &mut Vec<I>, bi| {
