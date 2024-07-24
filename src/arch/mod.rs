@@ -13,8 +13,6 @@ const PEEPHOLE_OPT_ITERS: usize = 2048;
 pub trait InstSelector: Sized {
     type Instruction: Inst;
 
-    fn new() -> Self;
-
     fn select_pre_fn(&mut self, gen: &mut VCodeGen<Self::Instruction>, args: &[ValueType]);
     fn select_inst(&mut self, gen: &mut VCodeGen<Self::Instruction>, inst: &Instruction);
     fn select_term(&mut self, gen: &mut VCodeGen<Self::Instruction>, term: &Terminator);
@@ -106,9 +104,11 @@ impl<'a, I: Inst> VCodeGen<'a, I> {
 }
 
 impl<'a, I: Inst> VCode<'a, I> {
-    pub fn generate<S: InstSelector<Instruction = I>, A: RegAlloc<I::Register>>(ir: Program<'a>) -> Self {
+    pub fn generate<S: InstSelector<Instruction = I>, A: RegAlloc<I::Register>>(
+        ir: Program<'a>,
+        mut sel: S,
+    ) -> Self {
         let mut gen = VCodeGen::new();
-        let mut sel = S::new();
         for (fi, f) in ir.functions.iter().enumerate() {
             gen.at_fn = Some(fi);
             gen.vcode.funcs.push(VFunction {

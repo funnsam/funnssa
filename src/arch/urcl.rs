@@ -17,8 +17,8 @@ const SPILL_1: UrclReg = UrclReg::R7;
 use core::fmt;
 use crate::arch::*;
 
-pub struct UrclSelector {
-}
+#[derive(Default)]
+pub struct UrclSelector;
 
 #[derive(Clone)]
 pub enum Operand {
@@ -329,10 +329,6 @@ impl Inst for UrclInst {
 
 impl InstSelector for UrclSelector {
     type Instruction = UrclInst;
-
-    fn new() -> Self {
-        Self {}
-    }
 
     fn select_pre_fn(&mut self, gen: &mut VCodeGen<Self::Instruction>, args: &[ValueType]) {
         gen.push_inst(UrclInst::Int2(UrclIntOp::Add, UrclReg::Sp.into(), UrclReg::Sp.into(), Operand::Immediate(SP_DECR)));
