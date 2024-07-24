@@ -179,7 +179,7 @@ impl Inst for UrclInst {
     fn apply_mandatory_transforms(vcode: &mut VCode<Self>) {
         for f in vcode.funcs.iter_mut() {
             let mut frame_size = 0;
-            let mut unspill = |inst: &mut Vec<UrclInst>| {
+            let mut unspill = |inst: &mut Vec<Self>| {
                 let mut i = 0;
                 while i < inst.len() {
                     let mut d_spilled = None;
@@ -199,26 +199,26 @@ impl Inst for UrclInst {
                     };
 
                     match &mut inst[i] {
-                        UrclInst::Int2(_, d, a, b) => {
+                        Self::Int2(_, d, a, b) => {
                             ud(d);
                             if let Operand::Register(a) = a { ua(a); }
                             if let Operand::Register(b) = b { ub(b); }
                         },
-                        UrclInst::Mov(d, v) => {
+                        Self::Mov(d, v) => {
                             ud(d);
                             ua(v);
                         },
-                        UrclInst::Imm(d, _) => ud(d),
-                        UrclInst::Bnz(_, c) => ua(c),
-                        UrclInst::Llod(d, b, _) => {
+                        Self::Imm(d, _) => ud(d),
+                        Self::Bnz(_, c) => ua(c),
+                        Self::Llod(d, b, _) => {
                             ud(d);
                             ua(b);
                         },
-                        UrclInst::Lstr(b, _, v) => {
+                        Self::Lstr(b, _, v) => {
                             ua(b);
                             ub(v);
                         },
-                        UrclInst::Ret | UrclInst::Jmp(_) | UrclInst::Cal(_) => {},
+                        Self::Ret | Self::Jmp(_) | Self::Cal(_) => {},
                     }
 
                     let stk = |i| CALLEE_SAVE.len() as i64 + i as i64;
@@ -227,21 +227,21 @@ impl Inst for UrclInst {
                         frame_size = frame_size.max(d + 1);
                         inst.insert(
                             i + 1,
-                            UrclInst::Lstr(UrclReg::Sp.into(), stk(d), SPILL_0.into()),
+                            Self::Lstr(UrclReg::Sp.into(), stk(d), SPILL_0.into()),
                         );
                     }
                     if let Some(a) = a_spilled {
                         frame_size = frame_size.max(a + 1);
                         inst.insert(
                             i,
-                            UrclInst::Llod(SPILL_0.into(), UrclReg::Sp.into(), stk(a)),
+                            Self::Llod(SPILL_0.into(), UrclReg::Sp.into(), stk(a)),
                         );
                     }
                     if let Some(b) = b_spilled {
                         frame_size = frame_size.max(b + 1);
                         inst.insert(
                             i,
-                            UrclInst::Llod(SPILL_1.into(), UrclReg::Sp.into(), stk(b)),
+                            Self::Llod(SPILL_1.into(), UrclReg::Sp.into(), stk(b)),
                         );
                     }
 
@@ -255,8 +255,8 @@ impl Inst for UrclInst {
             }
 
             let frame_size = (frame_size + CALLEE_SAVE.len()) as i64;
-            let update = |inst: &mut Vec<UrclInst>| for i in inst.iter_mut() {
-                if let UrclInst::Int2(UrclIntOp::Add, VReg::Real(UrclReg::Sp), Operand::Register(VReg::Real(UrclReg::Sp)), Operand::Immediate(v)) = i {
+            let update = |inst: &mut Vec<Self>| for i in inst.iter_mut() {
+                if let Self::Int2(UrclIntOp::Add, VReg::Real(UrclReg::Sp), Operand::Register(VReg::Real(UrclReg::Sp)), Operand::Immediate(v)) = i {
                     match *v {
                         SP_INCR => *v = frame_size,
                         SP_DECR => *v = -frame_size,
@@ -277,17 +277,17 @@ impl Inst for UrclInst {
         bi: Option<BlockId>,
     ) -> Option<(Vec<Self>, usize)> {
         match area {
-            [UrclInst::Mov(d, v), ..] if d == v => Some((vec![], 1)),
-            [UrclInst::Jmp(Location::Block(t))] if bi.map_or(false, |b| b.0 + 1 == *t) => Some((vec![], 1)),
-            [UrclInst::Imm(d, 0), ..] => Some((
-                vec![UrclInst::Int2(UrclIntOp::Xor, *d, (*d).into(), (*d).into())],
+            [Self::Mov(d, v), ..] if d == v => Some((vec![], 1)),
+            [Self::Jmp(Location::Block(t))] if bi.map_or(false, |b| b.0 + 1 == *t) => Some((vec![], 1)),
+            [Self::Imm(d, 0), ..] => Some((
+                vec![Self::Int2(UrclIntOp::Xor, *d, (*d).into(), (*d).into())],
                 1,
             )),
-            [UrclInst::Mov(a1, b1), UrclInst::Mov(b2, a2), ..] if *a1 == *a2 && *b1 == *b2 => Some((
+            [Self::Mov(a1, b1), Self::Mov(b2, a2), ..] if *a1 == *a2 && *b1 == *b2 => Some((
                 vec![area[0].clone()],
                 2,
             )),
-            [UrclInst::Mov(a1, _), UrclInst::Mov(a2, _), ..] if *a1 == *a2 => Some((
+            [Self::Mov(a1, _), Self::Mov(a2, _), ..] if *a1 == *a2 => Some((
                 vec![area[1].clone()],
                 2,
             )),
@@ -313,12 +313,12 @@ impl Inst for UrclInst {
             writeln!(f, "\n.F{}", n.name)?;
 
             for i in n.pre.iter() {
-                writeln!(f, "{}", InstFmt(i, &n.name))?;
+                writeln!(f, "{}", InstFmt(i, n.name))?;
             }
             for (bi, b) in n.body.iter().enumerate() {
                 writeln!(f, ".L{bi}_W{}", n.name)?;
                 for i in b.iter() {
-                    writeln!(f, "{}", InstFmt(i, &n.name))?;
+                    writeln!(f, "{}", InstFmt(i, n.name))?;
                 }
             }
         }
@@ -360,7 +360,7 @@ impl InstSelector for UrclSelector {
                 let dr = gen.get_value_vreg(d.id);
                 let vr = gen.get_value_vreg(v.id);
                 gen.push_inst(UrclInst::Int2(UrclIntOp::Bsl, dr, vr.into(), Operand::Immediate(32 - v.size as i64)));
-                gen.push_inst(UrclInst::Int2(UrclIntOp::Bss, vr.into(), vr.into(), Operand::Immediate(32 - v.size as i64)));
+                gen.push_inst(UrclInst::Int2(UrclIntOp::Bss, vr, vr.into(), Operand::Immediate(32 - v.size as i64)));
             },
             Instruction::ZeroExt(d, v) => {
                 let d = gen.get_value_vreg(d.id);

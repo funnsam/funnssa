@@ -3,11 +3,11 @@ pub fn parallel_move<T: Clone + Copy + Eq, F: FnMut(&T, &T) -> T>(
     alloc: &mut F,
 ) -> Vec<(T, T)> {
     let mut seq = Vec::with_capacity(pcopy.len());
-    while pcopy.iter().find(|(b, a)| a != b).is_some() {
+    while pcopy.iter().any(|(b, a)| a != b) {
         if let Some((i, (b, a))) = pcopy
             .iter()
             .enumerate()
-            .find(|(_, (b, _))| pcopy.iter().find(|(_, b2)| b2 == b).is_none())
+            .find(|(_, (b, _))| !pcopy.iter().any(|(_, b2)| b2 == b))
         {
             seq.push((*b, *a));
             pcopy.remove(i);

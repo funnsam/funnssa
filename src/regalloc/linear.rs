@@ -1,4 +1,4 @@
-use std::{collections::HashSet, usize};
+use std::collections::HashSet;
 
 use super::*;
 
@@ -99,17 +99,11 @@ impl<R: Register + 'static> RegAlloc<R> for LinearAlloc<R> {
 
             for (ri, reg) in self.reg_v.iter().enumerate() {
                 if reg.range.start == time {
-                    alloc[ri] = if let Some(r) = regs.pop() {
-                        VReg::Real(r)
-                    } else {
-                        let s = if let Some(s) = spill_av.pop() {
-                            s
-                        } else {
-                            spilled.len()
-                        };
+                    alloc[ri] = regs.pop().map_or_else(|| {
+                        let s = spill_av.pop().unwrap_or(spilled.len());
                         spilled.insert(s);
                         VReg::Spilled(s)
-                    }
+                    }, VReg::Real);
                 }
 
                 if reg.range.end == time {

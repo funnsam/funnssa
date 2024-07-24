@@ -51,7 +51,7 @@ impl fmt::Display for Function<'_> {
             write!(f, "{i}: {bb}")?;
         }
 
-        if self.blocks.len() != 0 { writeln!(f)?; }
+        if !self.blocks.is_empty() { writeln!(f)?; }
         Ok(())
     }
 }
