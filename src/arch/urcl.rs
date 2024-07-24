@@ -66,7 +66,7 @@ pub enum UrclIntOp {
     SDiv,
     Bsl,
     Bsr,
-    Srs,
+    Bss,
     And,
     Or,
     Xor,
@@ -343,7 +343,12 @@ impl InstSelector for UrclSelector {
                 let v = gen.get_value_vreg(v.id);
                 gen.push_inst(UrclInst::Mov(d, v));
             },
-            Instruction::SignExt(d, v) => todo!(),
+            Instruction::SignExt(d, v) => {
+                let dr = gen.get_value_vreg(d.id);
+                let vr = gen.get_value_vreg(v.id);
+                gen.push_inst(UrclInst::Int2(UrclIntOp::Bsl, dr, vr.into(), Operand::Immediate(32 - v.size as i64)));
+                gen.push_inst(UrclInst::Int2(UrclIntOp::Bss, vr.into(), vr.into(), Operand::Immediate(32 - v.size as i64)));
+            },
             Instruction::ZeroExt(d, v) => {
                 let d = gen.get_value_vreg(d.id);
                 let v = gen.get_value_vreg(v.id);
@@ -416,7 +421,7 @@ impl From<IntOp> for UrclIntOp {
             IntOp::SDiv => Self::SDiv,
             IntOp::Lsh => Self::Bsl,
             IntOp::URsh => Self::Bsr,
-            IntOp::SRsh => Self::Srs,
+            IntOp::SRsh => Self::Bss,
             IntOp::And => Self::And,
             IntOp::Or => Self::Or,
             IntOp::Xor => Self::Xor,
