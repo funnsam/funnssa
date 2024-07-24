@@ -3,8 +3,8 @@ use funnssa::{*, types::*};
 fn main() {
     let mut builder = builder::Builder::new();
     let int = ValueType::Int(32);
-    let (start, _) = builder.create_function("_start", vec![], None);
-    let (fib, args) = builder.create_function("rfib", vec![int], Some(int));
+    let (start, _) = builder.create_function(Linkage::Public, "_start", vec![], None);
+    let (fib, args) = builder.create_function(Linkage::Public, "rfib", vec![int], Some(int));
 
     {
         builder.position_at_function(start);

@@ -69,6 +69,7 @@ impl<R: Register + 'static> RegAlloc<R> for LinearAlloc<R> {
 
         for time in 0..self.position {
             for (ri, reg) in self.registers.iter_mut().enumerate() {
+                // TODO: make sure not to overwrite important real regs
                 if reg.range.start == time {
                     alloc[ri] = if let Some(r) = regs.pop() {
                         VReg::Real(r)

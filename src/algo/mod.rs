@@ -6,9 +6,11 @@ pub mod par_move;
 
 impl Function<'_> {
     pub fn do_everything(&mut self) {
-        self.construct_ssa();
-        self.destruct_from_ssa();
-        self.delete_unused();
+        if self.linkage != Linkage::External {
+            self.construct_ssa();
+            self.destruct_from_ssa();
+            self.delete_unused();
+        }
     }
 
     fn delete_unused(&mut self) {
@@ -23,6 +25,8 @@ impl Function<'_> {
                     | Instruction::Load(..) => {},
 
                     Instruction::Copy(_, v) => u(v.id),
+                    Instruction::SignExt(_, v)
+                    | Instruction::ZeroExt(_, v) => u(v.id),
                     Instruction::IntOp(_, _, a, b) => {
                         u(a.id);
                         u(b.id);
@@ -55,10 +59,13 @@ impl Function<'_> {
 
                 match ci {
                     Instruction::Copy(d, _) => del(d.id),
+                    Instruction::SignExt(d, _)
+                    | Instruction::ZeroExt(d, _) => del(d.id),
                     Instruction::Load(d, _) => del(d.id),
                     Instruction::Alloc(d, _) => del(d.0),
                     Instruction::IntOp(_, d, _, _) => del(d.id),
                     Instruction::Assign(d, _) => del(d.id),
+
                     _ => i += 1,
                 }
             }

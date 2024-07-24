@@ -31,7 +31,7 @@ fn immediate_dominators(dom: &BlockIdSet) -> Vec<Option<BlockId>> {
 }
 
 fn dom_tree_iter<F: FnMut(BlockId)>(idom: &[Option<BlockId>], at: BlockId, f: &mut F) {
-    f(at);
+    if at.0 < idom.len() { f(at); }
     for (i, d) in idom.iter().enumerate() {
         if *d == Some(at) {
             dom_tree_iter(idom, BlockId(i), f);
@@ -267,7 +267,9 @@ impl Function<'_> {
     // https://users-cs.au.dk/gerth/advising/thesis/henrik-knakkegaard-christensen.pdf page 18
     fn dominators(&self, pred: &BlockIdSet) -> BlockIdSet {
         let mut dom = vec![HashSet::new(); self.blocks.len()];
-        dom[0].insert(BlockId(0));
+        if let Some(d) = dom.get_mut(0) {
+            d.insert(BlockId(0));
+        }
 
         let all_v = (0..self.blocks.len()).map(BlockId).collect::<HashSet<BlockId>>();
         for (vi, _) in self.blocks.iter().enumerate().skip(1) {

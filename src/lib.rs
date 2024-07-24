@@ -30,12 +30,20 @@ pub struct Program<'a> {
 
 #[derive(Clone)]
 struct Function<'a> {
+    linkage: Linkage,
     name: &'a str,
     arguments: Vec<ValueType>,
     returns: Option<ValueType>,
     blocks: Vec<BasicBlock>,
 
     val_alloc: ValAlloc,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, strum::Display)]
+#[strum(serialize_all = "lowercase")]
+pub enum Linkage {
+    Public,
+    External,
 }
 
 #[derive(Clone)]
@@ -48,10 +56,14 @@ struct BasicBlock {
 #[derive(Clone)]
 pub enum Instruction {
     Alloc(PtrValue, Type),
+
+    Call(Option<Value>, FuncId, Vec<Value>),
+
     Assign(Value, u128),
     Copy(Value, Value),
     IntOp(IntOp, IntValue, IntValue, IntValue),
-    Call(Option<Value>, FuncId, Vec<Value>),
+    SignExt(IntValue, IntValue),
+    ZeroExt(IntValue, IntValue),
 
     Load(Value, PtrValue),
     Store(PtrValue, Value),
@@ -131,6 +143,7 @@ impl Instruction {
             | Self::Load(..) => {},
 
             Self::Copy(_, v) => r(&mut v.id),
+            Self::SignExt(_, v) | Self::ZeroExt(_, v) => r(&mut v.id),
             Self::IntOp(_, _, a, b) => {
                 r(&mut a.id);
                 r(&mut b.id);

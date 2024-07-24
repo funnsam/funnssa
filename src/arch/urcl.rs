@@ -267,6 +267,14 @@ impl Inst for UrclInst {
                 vec![UrclInst::Int2(UrclIntOp::Xor, *d, (*d).into(), (*d).into())],
                 1,
             )),
+            [UrclInst::Mov(a1, b1), UrclInst::Mov(b2, a2), ..] if *a1 == *a2 && *b1 == *b2 => Some((
+                vec![area[0].clone()],
+                2,
+            )),
+            [UrclInst::Mov(a1, _), UrclInst::Mov(a2, _), ..] if *a1 == *a2 => Some((
+                vec![area[1].clone()],
+                2,
+            )),
             _ => None,
         }
     }
@@ -284,6 +292,8 @@ impl Inst for UrclInst {
         writeln!(f, "hlt")?;
 
         for n in vcode.funcs.iter() {
+            if n.linkage == Linkage::External { continue; }
+
             writeln!(f, "\n.F{}", n.name)?;
 
             for i in n.pre.iter() {
@@ -329,6 +339,12 @@ impl InstSelector for UrclSelector {
                 gen.push_inst(UrclInst::Int2((*op).into(), d, a.into(), b.into()));
             },
             Instruction::Copy(d, v) => {
+                let d = gen.get_value_vreg(d.id);
+                let v = gen.get_value_vreg(v.id);
+                gen.push_inst(UrclInst::Mov(d, v));
+            },
+            Instruction::SignExt(d, v) => todo!(),
+            Instruction::ZeroExt(d, v) => {
                 let d = gen.get_value_vreg(d.id);
                 let v = gen.get_value_vreg(v.id);
                 gen.push_inst(UrclInst::Mov(d, v));

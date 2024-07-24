@@ -26,13 +26,20 @@ impl<'a> Builder<'a> {
         }
     }
 
-    pub fn create_function(&mut self, name: &'a str, at: Vec<ValueType>, rt: Option<ValueType>) -> (FuncId, Vec<Value>) {
+    pub fn create_function(
+        &mut self,
+        linkage: Linkage,
+        name: &'a str,
+        at: Vec<ValueType>,
+        rt: Option<ValueType>,
+    ) -> (FuncId, Vec<Value>) {
         let id = FuncId(self.program.functions.len());
         let args = at.iter().copied().enumerate().map(|(id, typ)| Value {
             typ,
             id: ValueId(id),
         }).collect::<Vec<_>>();
         self.program.functions.push(Function {
+            linkage,
             name,
             blocks: vec![],
             arguments: at,

@@ -29,7 +29,7 @@ impl fmt::Display for TermBlockId {
 impl fmt::Display for Program<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (i, fc) in self.functions.iter().enumerate() {
-            writeln!(f, "fn {i} {}:\n{fc}", fc.name)?;
+            write!(f, "fn{i} = {fc}")?;
         }
 
         Ok(())
@@ -38,10 +38,20 @@ impl fmt::Display for Program<'_> {
 
 impl fmt::Display for Function<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} fn {}(", self.linkage, self.name)?;
+        for (i, t) in self.arguments.iter().enumerate() {
+            write!(f, "{t} #{i}")?;
+            if i != self.arguments.len() - 1 { write!(f, ", ")?; }
+        }
+        write!(f, ")")?;
+        if let Some(r) = self.returns { write!(f, " -> {r}")?; }
+        writeln!(f, ":")?;
+
         for (i, bb) in self.blocks.iter().enumerate() {
             write!(f, "{i}: {bb}")?;
         }
 
+        if self.blocks.len() != 0 { writeln!(f)?; }
         Ok(())
     }
 }
@@ -71,6 +81,8 @@ impl fmt::Display for Instruction {
             Self::IntOp(op, t, a, b) => write!(f, "{t} = {op} {a}, {b}"),
             Self::Alloc(v, t) => write!(f, "{v} = alloc {t}"),
             Self::Copy(t, v) => write!(f, "{t} = {v}"),
+            Self::SignExt(t, v) => write!(f, "{t} = sext {v}"),
+            Self::ZeroExt(t, v) => write!(f, "{t} = zext {v}"),
             Self::Call(r, n, a) => {
                 if let Some(r) = r { write!(f, "{r} = ")?; }
                 write!(f, "call {n} ")?;

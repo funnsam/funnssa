@@ -49,6 +49,7 @@ pub struct VCode<'a, I: Inst> {
 }
 
 pub struct VFunction<'a, I: Inst> {
+    linkage: Linkage,
     name: &'a str,
     value_to_vreg: HashMap<ValueId, VReg<I::Register>>,
 
@@ -109,11 +110,15 @@ impl<'a, I: Inst> VCode<'a, I> {
         for (fi, f) in ir.functions.iter().enumerate() {
             gen.at_fn = Some(fi);
             gen.vcode.funcs.push(VFunction {
+                linkage: f.linkage,
                 name: f.name,
                 value_to_vreg: HashMap::new(),
                 pre: vec![],
                 body: vec![],
             });
+
+            if f.linkage == Linkage::External { continue; }
+
             sel.select_pre_fn(&mut gen, &f.arguments);
 
             for b in f.blocks.iter() {
@@ -154,8 +159,17 @@ impl<'a, I: Inst> VCode<'a, I> {
 
         I::apply_mandatory_transforms(&mut gen.vcode);
 
-        for f in gen.vcode.funcs.iter_mut() {
-            let p = |inst: &mut Vec<I>, bi| {
+        // TODO: limit iterations
+        while gen.vcode.apply_peephole_once() {}
+
+        gen.vcode
+    }
+
+    fn apply_peephole_once(&mut self) -> bool {
+        let mut changed = false;
+
+        for f in self.funcs.iter_mut() {
+            let mut p = |inst: &mut Vec<I>, bi| {
                 let mut h = 0;
                 while h < inst.len() {
                     if let Some((repl, del)) = I::peephole_opt(&inst[h..], bi) {
@@ -167,6 +181,8 @@ impl<'a, I: Inst> VCode<'a, I> {
                             inst.insert(h, r);
                             h += 1;
                         }
+
+                        changed = true;
                     } else {
                         h += 1;
                     }
@@ -179,7 +195,7 @@ impl<'a, I: Inst> VCode<'a, I> {
             }
         }
 
-        gen.vcode
+        changed
     }
 
     pub fn emit_assembly<W: std::io::Write>(&self, f: &mut W) -> std::io::Result<()> {
