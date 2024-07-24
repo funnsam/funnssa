@@ -46,6 +46,5 @@ fn main() {
     println!("{prog}");
 
     let vc = arch::VCode::generate::<arch::urcl::UrclSelector, regalloc::linear::LinearAlloc<_>>(prog);
-    println!("{vc}");
     vc.emit_assembly(&mut std::io::stdout()).unwrap();
 }

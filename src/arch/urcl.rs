@@ -101,7 +101,7 @@ impl Register for UrclReg {
     const REG_COUNT: usize = <Self as strum::EnumCount>::COUNT;
 
     fn get_regs() -> &'static [Self] {
-        &[Self::R5, Self::R4, Self::R3, Self::R2, Self::R1]
+        &[Self::R1, Self::R2, Self::R3, Self::R4, Self::R5]
     }
 }
 
@@ -221,7 +221,7 @@ impl Inst for UrclInst {
                         UrclInst::Ret | UrclInst::Jmp(_) | UrclInst::Cal(_) => {},
                     }
 
-                    let stk = |i| -(CALLEE_SAVE.len() as i64 + i as i64);
+                    let stk = |i| CALLEE_SAVE.len() as i64 + i as i64;
 
                     if let Some(d) = d_spilled {
                         frame_size = frame_size.max(d + 1);
@@ -337,9 +337,10 @@ impl InstSelector for UrclSelector {
     fn select_pre_fn(&mut self, gen: &mut VCodeGen<Self::Instruction>, args: &[ValueType]) {
         gen.push_inst(UrclInst::Int2(UrclIntOp::Add, UrclReg::Sp.into(), UrclReg::Sp.into(), Operand::Immediate(SP_DECR)));
         for (i, r) in CALLEE_SAVE.iter().copied().enumerate() {
-            gen.push_inst(UrclInst::Lstr(UrclReg::Sp.into(), -(i as i64), r.into()));
+            gen.push_inst(UrclInst::Lstr(UrclReg::Sp.into(), i as i64, r.into()));
         }
 
+        // TODO: big ass arg counts
         for (i, (_, r)) in args.iter().zip(ARG_REGS.iter().copied()).enumerate() {
             let i = gen.get_arg_vreg(i);
             gen.push_inst(UrclInst::Mov(i, r.into()));
@@ -417,7 +418,7 @@ impl InstSelector for UrclSelector {
                 }
 
                 for (i, r) in CALLEE_SAVE.iter().copied().enumerate().skip(r.is_some() as _) {
-                    gen.push_inst(UrclInst::Llod(r.into(), UrclReg::Sp.into(), -(i as i64)));
+                    gen.push_inst(UrclInst::Llod(r.into(), UrclReg::Sp.into(), i as i64));
                 }
                 gen.push_inst(UrclInst::Int2(UrclIntOp::Add, UrclReg::Sp.into(), UrclReg::Sp.into(), Operand::Immediate(SP_INCR)));
                 gen.push_inst(UrclInst::Ret);

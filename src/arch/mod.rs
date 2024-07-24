@@ -8,6 +8,8 @@ pub mod urcl;
 #[cfg(any(feature = "arch-x86_64", all(feature = "arch-native", target_arch = "x86_64")))]
 pub mod x86_64;
 
+const PEEPHOLE_OPT_ITERS: usize = 2048;
+
 pub trait InstSelector: Sized {
     type Instruction: Inst;
 
@@ -55,7 +57,6 @@ pub struct VFunction<'a, I: Inst> {
 
     pre: Vec<I>,
     body: Vec<Vec<I>>,
-    inst: Vec<Vec<(usize, Instruction)>>,
 }
 
 impl<'a, I: Inst> Default for VCodeGen<'a, I> {
@@ -116,7 +117,6 @@ impl<'a, I: Inst> VCode<'a, I> {
                 value_to_vreg: HashMap::new(),
                 pre: vec![],
                 body: vec![],
-                inst: vec![],
             });
 
             if f.linkage == Linkage::External { continue; }
@@ -125,11 +125,7 @@ impl<'a, I: Inst> VCode<'a, I> {
 
             for b in f.blocks.iter() {
                 gen.vcode.funcs.last_mut().unwrap().body.push(vec![]);
-                gen.vcode.funcs.last_mut().unwrap().inst.push(vec![]);
                 for i in b.insts.iter() {
-                    let l = gen.vcode.funcs.last().unwrap().body.last().unwrap().len();
-                    gen.vcode.funcs.last_mut().unwrap().inst.last_mut().unwrap().push((l, i.clone()));
-
                     sel.select_inst(&mut gen, i);
                 }
                 sel.select_term(&mut gen, &b.term);
@@ -167,8 +163,7 @@ impl<'a, I: Inst> VCode<'a, I> {
 
         I::apply_mandatory_transforms(&mut gen.vcode);
 
-        // TODO: limit iterations
-        // while gen.vcode.apply_peephole_once() {}
+        for _ in (0..PEEPHOLE_OPT_ITERS).take_while(|_| gen.vcode.apply_peephole_once()) {}
 
         gen.vcode
     }
@@ -248,15 +243,7 @@ impl<I: Inst + fmt::Display> fmt::Display for VFunction<'_, I> {
         for (bi, b) in self.body.iter().enumerate() {
             writeln!(f, ".L{bi}:")?;
 
-            let mut dbg = self.inst[bi].iter();
-            let mut next_dbg = dbg.next();
-            for (ii, i) in b.iter().enumerate() {
-                if let Some(n) = next_dbg {
-                    if n.0 == ii {
-                        writeln!(f, "// {}", n.1)?;
-                        next_dbg = dbg.next();
-                    }
-                }
+            for i in b.iter() {
                 writeln!(f, "{i}")?;
             }
         }
