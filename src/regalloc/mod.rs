@@ -2,7 +2,8 @@ use core::fmt;
 
 pub mod linear;
 
-pub trait Register: Sized + Clone + Copy + fmt::Display + Eq + core::hash::Hash {
+pub trait Register: Sized + Clone + Copy + fmt::Display + Eq + core::hash::Hash + TryFrom<usize> + Into<usize> {
+    const REG_COUNT: usize;
     fn get_regs() -> &'static [Self];
 }
 
@@ -13,7 +14,9 @@ pub trait RegAlloc<R: Register> where Self: Sized {
     fn define(&mut self, vr: VReg<R>);
     fn add_use(&mut self, vr: VReg<R>);
     fn coalesce_move(&mut self, from: VReg<R>, to: VReg<R>);
-    fn alloc_regs(self) -> Vec<VReg<R>>;
+
+    fn alloc_regs(&mut self, alloc: &mut [VReg<R>]);
+    fn clear(&mut self);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

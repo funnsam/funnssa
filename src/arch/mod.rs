@@ -55,6 +55,7 @@ pub struct VFunction<'a, I: Inst> {
 
     pre: Vec<I>,
     body: Vec<Vec<I>>,
+    inst: Vec<Vec<(usize, Instruction)>>,
 }
 
 impl<'a, I: Inst> Default for VCodeGen<'a, I> {
@@ -115,6 +116,7 @@ impl<'a, I: Inst> VCode<'a, I> {
                 value_to_vreg: HashMap::new(),
                 pre: vec![],
                 body: vec![],
+                inst: vec![],
             });
 
             if f.linkage == Linkage::External { continue; }
@@ -123,7 +125,11 @@ impl<'a, I: Inst> VCode<'a, I> {
 
             for b in f.blocks.iter() {
                 gen.vcode.funcs.last_mut().unwrap().body.push(vec![]);
+                gen.vcode.funcs.last_mut().unwrap().inst.push(vec![]);
                 for i in b.insts.iter() {
+                    let l = gen.vcode.funcs.last().unwrap().body.last().unwrap().len();
+                    gen.vcode.funcs.last_mut().unwrap().inst.last_mut().unwrap().push((l, i.clone()));
+
                     sel.select_inst(&mut gen, i);
                 }
                 sel.select_term(&mut gen, &b.term);
@@ -131,7 +137,9 @@ impl<'a, I: Inst> VCode<'a, I> {
         }
 
         let mut ra = A::new_sized(gen.vreg_alloc.0);
-        for f in gen.vcode.funcs.iter() {
+        let mut alloc = vec![VReg::Virtual(0); gen.vreg_alloc.0];
+
+        for f in gen.vcode.funcs.iter_mut() {
             for i in f.pre.iter() {
                 i.register_regalloc(&mut ra);
                 ra.next();
@@ -143,24 +151,24 @@ impl<'a, I: Inst> VCode<'a, I> {
                 ra.next();
                 }
             }
-        }
-        let ra = ra.alloc_regs();
-        for f in gen.vcode.funcs.iter_mut() {
+
+            ra.alloc_regs(&mut alloc);
             for i in f.pre.iter_mut() {
-                i.apply_alloc(&ra);
+                i.apply_alloc(&alloc);
             }
 
             for b in f.body.iter_mut() {
                 for i in b.iter_mut() {
-                    i.apply_alloc(&ra);
+                    i.apply_alloc(&alloc);
                 }
             }
+            ra.clear();
         }
 
         I::apply_mandatory_transforms(&mut gen.vcode);
 
         // TODO: limit iterations
-        while gen.vcode.apply_peephole_once() {}
+        // while gen.vcode.apply_peephole_once() {}
 
         gen.vcode
     }
@@ -239,7 +247,16 @@ impl<I: Inst + fmt::Display> fmt::Display for VFunction<'_, I> {
         }
         for (bi, b) in self.body.iter().enumerate() {
             writeln!(f, ".L{bi}:")?;
-            for i in b.iter() {
+
+            let mut dbg = self.inst[bi].iter();
+            let mut next_dbg = dbg.next();
+            for (ii, i) in b.iter().enumerate() {
+                if let Some(n) = next_dbg {
+                    if n.0 == ii {
+                        writeln!(f, "// {}", n.1)?;
+                        next_dbg = dbg.next();
+                    }
+                }
                 writeln!(f, "{i}")?;
             }
         }

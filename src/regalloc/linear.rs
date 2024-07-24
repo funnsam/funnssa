@@ -5,8 +5,9 @@ use super::*;
 type LiveRange = core::ops::Range<usize>;
 
 pub struct LinearAlloc<R: Register> {
-    registers: Vec<LinearReg<R>>,
-    position: usize,
+    reg_v: Vec<LinearReg<R>>,
+    reg_r: Vec<LinearReg<R>>,
+    range: LiveRange,
 }
 
 #[derive(Clone)]
@@ -19,57 +20,83 @@ struct LinearReg<R: Register> {
 impl<R: Register + 'static> RegAlloc<R> for LinearAlloc<R> {
     fn new_sized(size: usize) -> Self {
         Self {
-            registers: vec![LinearReg {
+            reg_v: vec![LinearReg {
                 uses: 0,
                 range: usize::MAX..usize::MAX,
                 try_coalesce: None,
             }; size],
-            position: 0,
+            reg_r: vec![LinearReg {
+                uses: 0,
+                range: usize::MAX..usize::MAX,
+                try_coalesce: None,
+            }; size],
+            range: 0..0,
         }
     }
 
     fn next(&mut self) {
-        self.position += 1;
+        self.range.end += 1;
     }
 
     fn define(&mut self, vr: VReg<R>) {
-        if let VReg::Virtual(vr) = vr {
-            let lr = &mut self.registers[vr];
-            if lr.range.start == lr.range.end && lr.range.start == usize::MAX {
-                lr.range.start = self.position;
-            }
+        let lr = match vr {
+            VReg::Real(r) => &mut self.reg_r[r.into()],
+            VReg::Virtual(v) => &mut self.reg_v[v],
+            VReg::Spilled(_) => return,
+        };
 
-            lr.range.end = self.position;
+        if lr.range.start == lr.range.end && lr.range.start == usize::MAX {
+            lr.range.start = self.range.end;
         }
+
+        lr.range.end = self.range.end;
     }
 
     fn add_use(&mut self, vr: VReg<R>) {
-        if let VReg::Virtual(vr) = vr {
-            let lr = &mut self.registers[vr];
-            if lr.range.start == lr.range.end && lr.range.start == usize::MAX {
-                lr.range.start = self.position;
-            }
+        let lr = match vr {
+            VReg::Real(r) => &mut self.reg_r[r.into()],
+            VReg::Virtual(v) => &mut self.reg_v[v],
+            VReg::Spilled(_) => return,
+        };
 
-            lr.range.end = self.position;
-            lr.uses += 1;
+        if lr.range.start == lr.range.end && lr.range.start == usize::MAX {
+            lr.range.start = self.range.end;
         }
+
+        lr.range.end = self.range.end;
+        lr.uses += 1;
     }
 
     fn coalesce_move(&mut self, from: VReg<R>, to: VReg<R>) {
-        if let VReg::Virtual(from) = from {
-            self.registers[from].try_coalesce = Some(to);
-        }
+        let lr = match from {
+            VReg::Real(r) => &mut self.reg_r[r.into()],
+            VReg::Virtual(v) => &mut self.reg_v[v],
+            VReg::Spilled(_) => return,
+        };
+
+        lr.try_coalesce = Some(to);
     }
 
-    fn alloc_regs(mut self) -> Vec<VReg<R>> {
-        let mut alloc = vec![VReg::Virtual(0); self.registers.len()];
+    fn alloc_regs(&mut self, alloc: &mut [VReg<R>]) {
         let mut regs = R::get_regs().to_vec();
+        let mut using_regs = Vec::new();
         let mut spilled = HashSet::new();
         let mut spill_av = Vec::new();
 
-        for time in 0..self.position {
-            for (ri, reg) in self.registers.iter_mut().enumerate() {
-                // TODO: make sure not to overwrite important real regs
+        for time in self.range.clone() {
+            for (ri, reg) in self.reg_r.iter().enumerate() {
+                if reg.range.start == time {
+                    regs.retain(|e| (*e).into() != ri);
+                    using_regs.push(ri.try_into().ok().unwrap());
+                }
+
+                if reg.range.end == time {
+                    using_regs.retain(|e: &R| (*e).into() != ri);
+                    regs.push(ri.try_into().ok().unwrap());
+                }
+            }
+
+            for (ri, reg) in self.reg_v.iter().enumerate() {
                 if reg.range.start == time {
                     alloc[ri] = if let Some(r) = regs.pop() {
                         VReg::Real(r)
@@ -93,7 +120,14 @@ impl<R: Register + 'static> RegAlloc<R> for LinearAlloc<R> {
                 }
             }
         }
+    }
 
-        alloc
+    fn clear(&mut self) {
+        self.reg_r.fill(LinearReg {
+            uses: 0,
+            range: usize::MAX..usize::MAX,
+            try_coalesce: None,
+        });
+        self.range.start = self.range.end;
     }
 }

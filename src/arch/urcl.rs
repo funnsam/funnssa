@@ -83,7 +83,7 @@ pub enum UrclIntOp {
     SetNe,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, strum::Display)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, strum::Display, strum::EnumCount, strum::FromRepr)]
 #[strum(serialize_all = "lowercase")]
 pub enum UrclReg {
     Sp,
@@ -98,8 +98,24 @@ pub enum UrclReg {
 }
 
 impl Register for UrclReg {
+    const REG_COUNT: usize = <Self as strum::EnumCount>::COUNT;
+
     fn get_regs() -> &'static [Self] {
-        &[Self::R1, Self::R2, Self::R3, Self::R4, Self::R5]
+        &[Self::R5, Self::R4, Self::R3, Self::R2, Self::R1]
+    }
+}
+
+impl From<UrclReg> for usize {
+    fn from(value: UrclReg) -> Self {
+        value as _
+    }
+}
+
+impl TryFrom<usize> for UrclReg {
+    type Error = ();
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        Self::from_repr(value).ok_or(())
     }
 }
 
@@ -120,12 +136,12 @@ impl Inst for UrclInst {
             Self::Imm(d, _) => ra.define(*d),
             Self::Bnz(_, c) => ra.add_use(*c),
             Self::Llod(d, b, _) => {
-                ra.define(*d);
-                ra.add_use(*b);
+                // ra.define(*d);
+                // ra.add_use(*b);
             },
             Self::Lstr(b, _, v) => {
-                ra.add_use(*b);
-                ra.add_use(*v);
+                // ra.add_use(*b);
+                // ra.add_use(*v);
             },
             Self::Ret | Self::Jmp(_) | Self::Cal(_) => {},
         }
