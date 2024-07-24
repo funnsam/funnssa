@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, usize};
 
 use super::*;
 
@@ -29,7 +29,7 @@ impl<R: Register + 'static> RegAlloc<R> for LinearAlloc<R> {
                 uses: 0,
                 range: usize::MAX..usize::MAX,
                 try_coalesce: None,
-            }; size],
+            }; R::REG_COUNT],
             range: 0..0,
         }
     }
@@ -85,14 +85,15 @@ impl<R: Register + 'static> RegAlloc<R> for LinearAlloc<R> {
 
         for time in self.range.clone() {
             for (ri, reg) in self.reg_r.iter().enumerate() {
-                if reg.range.start == time {
+                let r = ri.try_into().ok().unwrap();
+                if reg.range.start == time && regs.contains(&r) {
                     regs.retain(|e| (*e).into() != ri);
-                    using_regs.push(ri.try_into().ok().unwrap());
+                    using_regs.push(r);
                 }
 
-                if reg.range.end == time {
+                if reg.range.end == time && using_regs.contains(&r) {
                     using_regs.retain(|e: &R| (*e).into() != ri);
-                    regs.push(ri.try_into().ok().unwrap());
+                    regs.push(r);
                 }
             }
 
