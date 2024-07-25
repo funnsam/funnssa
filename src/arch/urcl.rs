@@ -3,6 +3,9 @@
 //! - `R1` - `R5`: Arguments and temporaries
 //! - `R6` - `R7`: Scratch registers
 
+use core::fmt;
+use crate::arch::*;
+
 const CALLEE_SAVE: &[UrclReg] = &[UrclReg::R1, UrclReg::R2, UrclReg::R3, UrclReg::R4, UrclReg::R5];
 const ARG_REGS: &[UrclReg] = &[UrclReg::R1, UrclReg::R2, UrclReg::R3, UrclReg::R4, UrclReg::R5];
 const RET_REG: UrclReg = UrclReg::R1;
@@ -13,9 +16,6 @@ const SP_DECR: i64 = i64::MIN;
 
 const SPILL_0: UrclReg = UrclReg::R6;
 const SPILL_1: UrclReg = UrclReg::R7;
-
-use core::fmt;
-use crate::arch::*;
 
 #[derive(Default)]
 pub struct UrclSelector;
