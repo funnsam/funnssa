@@ -41,16 +41,13 @@ fn dom_tree_iter<F: FnMut(BlockId)>(idom: &[Option<BlockId>], at: BlockId, f: &m
 
 impl Function<'_> {
     pub fn construct_ssa(&mut self) {
-        let mut pred = self.pred();
-        println!("{pred:?}");
+        self.remove_crit_edge();
 
-        self.remove_crit_edge(&mut pred);
-
-        let dom = self.dominators(&pred);
+        let dom = self.dominators();
         println!("{dom:?}");
         let idom = immediate_dominators(&dom);
         println!("{idom:?}");
-        let dft = self.dominance_frontiers(&idom, &pred);
+        let dft = self.dominance_frontiers(&idom);
         println!("{dft:?}");
 
         let mut vdefs = self.get_val_defs();
@@ -58,7 +55,7 @@ impl Function<'_> {
         let adefs = self.get_alloc_defs();
         println!("{adefs:?}");
 
-        self.phi_lower(&mut vdefs, &adefs, &dft, &dom, &idom, &pred);
+        self.phi_lower(&mut vdefs, &adefs, &dft, &dom, &idom);
         self.delete_alloc(&adefs);
         self.copy_elision(&dom);
     }
@@ -85,27 +82,32 @@ impl Function<'_> {
         }
     }
 
-    fn remove_crit_edge(&mut self, pred: &mut BlockIdSet) {
+    fn remove_crit_edge(&mut self) {
         for bi in 0..self.blocks.len() {
-            let is: Vec<_> = self.blocks[bi].term.immediate_successor().iter().map(|v| v.target).collect();
+            let is = self.blocks[bi].succ.clone();
 
             if is.len() < 2 { continue; }
             for s in is.into_iter() {
-                if pred[s.0].len() < 2 { continue; }
+                if self.blocks[s.0].pred.len() < 2 { continue; }
 
                 let ceid = self.blocks.len();
+
+                let mut bb_pred = HashSet::new();
+                bb_pred.insert(BlockId(bi));
+                let mut bb_succ = HashSet::new();
+                bb_succ.insert(s);
+
                 self.blocks.push(BasicBlock {
                     args: vec![],
                     insts: vec![],
                     term: Terminator::UncondBranch(s.into()),
+                    pred: bb_pred,
+                    succ: bb_succ,
                 });
 
                 self.blocks[bi].term.replace(s, BlockId(ceid));
-                pred[s.0].remove(&BlockId(bi));
-                pred[s.0].insert(BlockId(ceid));
-                let mut pr = HashSet::new();
-                pr.insert(BlockId(bi));
-                pred.push(pr);
+                self.blocks[s.0].pred.remove(&BlockId(bi));
+                self.blocks[s.0].pred.insert(BlockId(ceid));
             }
         }
     }
@@ -117,10 +119,9 @@ impl Function<'_> {
         dft: &BlockIdSet,
         dom: &BlockIdSet,
         idom: &[Option<BlockId>],
-        pred: &BlockIdSet,
     ) {
         for (i, (d, typ)) in adefs.iter() {
-            self.add_args(d, *i, *typ, dft, pred);
+            self.add_args(d, *i, *typ, dft);
         }
 
         let mut rdef: Vec<Option<ValueId>> = vec![None; self.val_alloc.0.0];
@@ -220,7 +221,7 @@ impl Function<'_> {
         defs
     }
 
-    fn add_args(&mut self, defs: &HashSet<BlockId>, id: ValueId, typ: ValueType, dft: &BlockIdSet, pred: &BlockIdSet) {
+    fn add_args(&mut self, defs: &HashSet<BlockId>, id: ValueId, typ: ValueType, dft: &BlockIdSet) {
         let mut added = Vec::new();
         let mut w = defs.iter().copied().collect::<Vec<BlockId>>();
 
@@ -228,7 +229,7 @@ impl Function<'_> {
             for y in dft[x.0].iter() {
                 if !added.contains(y) {
                     self.blocks[y.0].args.push(Value { typ, id });
-                    for p in pred[y.0].iter() {
+                    for p in self.blocks[y.0].pred.clone().iter() {
                         self.blocks[p.0].term.push_arg(*y, id);
                     }
 
@@ -241,12 +242,12 @@ impl Function<'_> {
         }
     }
 
-    fn dominance_frontiers(&self, idom: &[Option<BlockId>], pred: &BlockIdSet) -> BlockIdSet {
+    fn dominance_frontiers(&self, idom: &[Option<BlockId>]) -> BlockIdSet {
         let mut dft = vec![HashSet::new(); self.blocks.len()];
 
         for (bi, _) in self.blocks.iter().enumerate() {
             if let Some(ib) = idom[bi] {
-                for p in pred[bi].iter() {
+                for p in self.blocks[bi].pred.iter() {
                     let mut runner = *p;
 
                     while runner != ib {
@@ -265,7 +266,7 @@ impl Function<'_> {
     }
 
     // https://users-cs.au.dk/gerth/advising/thesis/henrik-knakkegaard-christensen.pdf page 18
-    fn dominators(&self, pred: &BlockIdSet) -> BlockIdSet {
+    fn dominators(&self) -> BlockIdSet {
         let mut dom = vec![HashSet::new(); self.blocks.len()];
         if let Some(d) = dom.get_mut(0) {
             d.insert(BlockId(0));
@@ -296,17 +297,17 @@ impl Function<'_> {
         dom
     }
 
-    fn pred(&self) -> BlockIdSet {
-        let mut pred = vec![HashSet::new(); self.blocks.len()];
+    // fn pred(&self) -> BlockIdSet {
+    //     let mut pred = vec![HashSet::new(); self.blocks.len()];
 
-        for b in 0..self.blocks.len() {
-            for is in self.blocks[b].term.immediate_successor() {
-                pred[is.target.0].insert(BlockId(b));
-            }
-        }
+    //     for b in 0..self.blocks.len() {
+    //         for is in self.blocks[b].succ.iter() {
+    //             pred[is.target.0].insert(BlockId(b));
+    //         }
+    //     }
 
-        pred
-    }
+    //     pred
+    // }
 
     fn delete_alloc(&mut self, def: &HashMap<ValueId, (HashSet<BlockId>, ValueType)>) {
         let mut mark = Vec::new();

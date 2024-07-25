@@ -1,5 +1,7 @@
 use core::fmt;
-use crate::{*, regalloc::*};
+use std::ops::Range;
+use crate::{Function, *};
+use regalloc2::*;
 
 #[cfg(any(feature = "arch-aarch64", all(feature = "arch-native", target_arch = "aarch64")))]
 pub mod aarch64;
@@ -19,12 +21,15 @@ pub trait InstSelector: Sized {
 }
 
 pub trait Inst: Sized {
-    type Register: Register;
+    fn is_branch(&self) -> bool;
+    fn is_ret(&self) -> bool;
+    fn clobbers(&self) -> PRegSet;
+    fn operands<'a>(&'a self) -> &'a [Operand];
+    fn spill_size(rc: RegClass) -> usize;
 
-    fn register_regalloc(&self, ra: &mut impl RegAlloc<Self::Register>);
-    fn apply_alloc(&mut self, ra: &[VReg<Self::Register>]);
+    fn reg_env() -> MachineEnv;
 
-    fn apply_mandatory_transforms(vcode: &mut VCode<Self>);
+    fn apply_mandatory_transforms(vf: &mut VFunction<Self>, ra: Output);
 
     fn peephole_opt(
         area: &[Self],
@@ -41,7 +46,6 @@ pub struct VCodeGen<'a, I: Inst> {
     vcode: VCode<'a, I>,
 
     at_fn: Option<usize>,
-    pub vreg_alloc: VRegAlloc,
 }
 
 pub struct VCode<'a, I: Inst> {
@@ -51,10 +55,13 @@ pub struct VCode<'a, I: Inst> {
 pub struct VFunction<'a, I: Inst> {
     linkage: Linkage,
     name: &'a str,
-    value_to_vreg: HashMap<ValueId, VReg<I::Register>>,
+    value_to_vreg: HashMap<ValueId, VReg>,
 
-    pre: Vec<I>,
-    body: Vec<Vec<I>>,
+    body: Vec<I>,
+    body_range: Vec<Range<usize>>,
+    vreg_alloc: VRegAlloc,
+
+    orig_fn: &'a Function<'a>,
 }
 
 impl<'a, I: Inst> Default for VCodeGen<'a, I> {
@@ -71,13 +78,15 @@ impl<'a, I: Inst> VCodeGen<'a, I> {
             },
 
             at_fn: None,
-            vreg_alloc: VRegAlloc(0),
         }
     }
 
     pub fn push_inst(&mut self, i: I) {
         let f = &mut self.vcode.funcs[self.at_fn.unwrap()];
-        f.body.last_mut().unwrap_or(&mut f.pre).push(i);
+        f.body.push(i);
+        if let Some(r) = f.body_range.last_mut() {
+            r.end += 1;
+        }
     }
 
     pub fn get_function(&self) -> &'a VFunction<I> {
@@ -88,35 +97,41 @@ impl<'a, I: Inst> VCodeGen<'a, I> {
         &mut self.vcode.funcs[self.at_fn.unwrap()]
     }
 
-    pub fn get_value_vreg(&mut self, v: ValueId) -> VReg<I::Register> {
-        if let Some(v) = self.get_function().value_to_vreg.get(&v) {
+    pub fn get_value_vreg(&mut self, v: ValueId) -> VReg {
+        let f = &mut self.vcode.funcs[self.at_fn.unwrap()];
+
+        if let Some(v) = f.value_to_vreg.get(&v) {
             *v
         } else {
-            let vr = self.vreg_alloc.alloc_virtual();
-            self.vcode.funcs[self.at_fn.unwrap()].value_to_vreg.insert(v, vr);
+            let vr = f.vreg_alloc.alloc_virtual();
+            f.value_to_vreg.insert(v, vr);
             vr
         }
     }
 
-    pub fn get_arg_vreg(&mut self, a: usize) -> VReg<I::Register> {
+    pub fn get_arg_vreg(&mut self, a: usize) -> VReg {
         self.get_value_vreg(ValueId(a))
     }
 }
 
 impl<'a, I: Inst> VCode<'a, I> {
-    pub fn generate<S: InstSelector<Instruction = I>, A: RegAlloc<I::Register>>(
-        ir: Program<'a>,
+    pub fn generate<S: InstSelector<Instruction = I>>(
+        ir: &'a Program<'a>,
         mut sel: S,
     ) -> Self {
         let mut gen = VCodeGen::new();
+        let menv = I::reg_env();
+
         for (fi, f) in ir.functions.iter().enumerate() {
             gen.at_fn = Some(fi);
             gen.vcode.funcs.push(VFunction {
                 linkage: f.linkage,
                 name: f.name,
                 value_to_vreg: HashMap::new(),
-                pre: vec![],
                 body: vec![],
+                body_range: vec![],
+                vreg_alloc: VRegAlloc(0),
+                orig_fn: f,
             });
 
             if f.linkage == Linkage::External { continue; }
@@ -124,44 +139,19 @@ impl<'a, I: Inst> VCode<'a, I> {
             sel.select_pre_fn(&mut gen, &f.arguments);
 
             for b in f.blocks.iter() {
-                gen.vcode.funcs.last_mut().unwrap().body.push(vec![]);
+                let f = gen.vcode.funcs.last_mut().unwrap();
+                let l = f.body.len();
+                f.body_range.push(l..l);
+
                 for i in b.insts.iter() {
                     sel.select_inst(&mut gen, i);
                 }
                 sel.select_term(&mut gen, &b.term);
             }
+
+            let out = regalloc2::run(gen.get_function(), &menv, &RegallocOptions::default()).unwrap();
+            I::apply_mandatory_transforms(gen.vcode.funcs.last_mut().unwrap(), out);
         }
-
-        let mut ra = A::new_sized(gen.vreg_alloc.0);
-        let mut alloc = vec![VReg::Virtual(0); gen.vreg_alloc.0];
-
-        for f in gen.vcode.funcs.iter_mut() {
-            for i in f.pre.iter() {
-                i.register_regalloc(&mut ra);
-                ra.next();
-            }
-
-            for b in f.body.iter() {
-                for i in b.iter() {
-                    i.register_regalloc(&mut ra);
-                ra.next();
-                }
-            }
-
-            ra.alloc_regs(&mut alloc);
-            for i in f.pre.iter_mut() {
-                i.apply_alloc(&alloc);
-            }
-
-            for b in f.body.iter_mut() {
-                for i in b.iter_mut() {
-                    i.apply_alloc(&alloc);
-                }
-            }
-            ra.clear();
-        }
-
-        I::apply_mandatory_transforms(&mut gen.vcode);
 
         for _ in (0..PEEPHOLE_OPT_ITERS).take_while(|_| gen.vcode.apply_peephole_once()) {}
 
@@ -171,7 +161,7 @@ impl<'a, I: Inst> VCode<'a, I> {
     fn apply_peephole_once(&mut self) -> bool {
         let mut changed = false;
 
-        for f in self.funcs.iter_mut() {
+        /* for f in self.funcs.iter_mut() {
             let mut p = |inst: &mut Vec<I>, bi| {
                 let mut h = 0;
                 while h < inst.len() {
@@ -196,7 +186,7 @@ impl<'a, I: Inst> VCode<'a, I> {
             for (bi, b) in f.body.iter_mut().enumerate() {
                 p(b, Some(BlockId(bi)));
             }
-        }
+        } */
 
         changed
     }
@@ -237,15 +227,10 @@ impl<I: Inst + fmt::Display> fmt::Display for VCode<'_, I> {
 impl<I: Inst + fmt::Display> fmt::Display for VFunction<'_, I> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "F{}:", self.name)?;
-        for i in self.pre.iter() {
-            writeln!(f, "{i}")?;
-        }
-        for (bi, b) in self.body.iter().enumerate() {
-            writeln!(f, ".L{bi}:")?;
+        for (ii, i) in self.body.iter().enumerate() {
+            // writeln!(f, ".L{bi}:")?;
 
-            for i in b.iter() {
-                writeln!(f, "{i}")?;
-            }
+            writeln!(f, "{i}")?;
         }
         Ok(())
     }
@@ -257,5 +242,75 @@ impl fmt::Display for Location {
             Self::Function(i) => write!(f, "F{i}"),
             Self::Block(b) => write!(f, ".L{b}"),
         }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct VRegAlloc(pub(crate) usize);
+
+impl VRegAlloc {
+    pub fn alloc_virtual(&mut self) -> VReg {
+        let id = self.0;
+        self.0 += 1;
+        VReg::new(id, RegClass::Int)
+    }
+}
+
+impl<I: Inst> regalloc2::Function for VFunction<'_, I> {
+    fn num_insts(&self) -> usize {
+        self.body.len()
+    }
+
+    fn num_blocks(&self) -> usize {
+        self.body_range.len()
+    }
+
+    fn entry_block(&self) -> Block {
+        Block(0)
+    }
+
+    fn block_insns(&self, block: Block) -> InstRange {
+        let r = &self.body_range[block.0 as usize];
+        InstRange::forward(Inst(r.start as _), Inst(r.end as _))
+    }
+
+    fn block_succs(&self, block: Block) -> &[Block] {
+        &self.orig_fn.blocks[block.0 as usize].succ
+    }
+
+    fn block_preds(&self, block: Block) -> &[Block] {
+        todo!()
+    }
+
+    fn block_params(&self, block: Block) -> &[VReg] {
+        todo!()
+    }
+
+    fn is_ret(&self, insn: regalloc2::Inst) -> bool {
+        self.body[insn.0 as usize].is_ret()
+    }
+
+    fn is_branch(&self, insn: regalloc2::Inst) -> bool {
+        self.body[insn.0 as usize].is_branch()
+    }
+
+    fn branch_blockparams(&self, block: Block, insn: regalloc2::Inst, succ_idx: usize) -> &[VReg] {
+        todo!()
+    }
+
+    fn inst_operands(&self, insn: regalloc2::Inst) -> &[Operand] {
+        self.body[insn.0 as usize].operands()
+    }
+
+    fn inst_clobbers(&self, insn: regalloc2::Inst) -> PRegSet {
+        self.body[insn.0 as usize].clobbers()
+    }
+
+    fn num_vregs(&self) -> usize {
+        self.vreg_alloc.0
+    }
+
+    fn spillslot_size(&self, regclass: RegClass) -> usize {
+        I::spill_size(regclass)
     }
 }

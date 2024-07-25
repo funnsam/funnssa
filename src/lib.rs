@@ -14,7 +14,7 @@
 pub mod algo;
 pub mod arch;
 pub mod builder;
-pub mod regalloc;
+// pub mod regalloc;
 pub mod types;
 pub mod value;
 mod display;
@@ -51,6 +51,9 @@ struct BasicBlock {
     args: Vec<Value>,
     insts: Vec<Instruction>,
     term: Terminator,
+
+    succ: HashSet<BlockId>,
+    pred: HashSet<BlockId>,
 }
 
 #[derive(Clone)]
@@ -158,13 +161,13 @@ impl Instruction {
 }
 
 impl Terminator {
-    fn immediate_successor(&self) -> Vec<&TermBlockId> {
-        match self {
-            Self::CondBranch(_, a, b) => vec![a, b],
-            Self::UncondBranch(t) => vec![t],
-            Self::Return(_) | Self::None => vec![],
-        }
-    }
+    // fn immediate_successor(&self) -> Vec<&TermBlockId> {
+    //     match self {
+    //         Self::CondBranch(_, a, b) => vec![a, b],
+    //         Self::UncondBranch(t) => vec![t],
+    //         Self::Return(_) | Self::None => vec![],
+    //     }
+    // }
 
     fn immediate_successor_mut(&mut self) -> Vec<&mut TermBlockId> {
         match self {

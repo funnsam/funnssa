@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+regalloc2 = "0.9.3"
 strum = { version = "0.26.3", features = ["derive"] }
 
 [features]
-# TODO: remove urcl as default when x86_64 is done
-default = ["arch-common", "arch-urcl"]
+default = ["arch-common", "arch-native"]
 arch-common = ["arch-x86_64", "arch-aarch64"]
 arch-x86_64 = []
 arch-aarch64 = []

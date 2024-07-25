@@ -66,6 +66,8 @@ impl<'a> Builder<'a> {
             args: vec![],
             insts: vec![],
             term: Terminator::None,
+            succ: vec![],
+            pred: vec![],
         });
         id
     }
@@ -90,6 +92,10 @@ impl<'a> Builder<'a> {
 
     fn alloc_ptr(&mut self) -> PtrValue {
         PtrValue(self.alloc_val_id())
+    }
+
+    fn get_current_fn(&'a mut self) -> &'a mut Function {
+        &mut self.program.functions[self.at_fn.unwrap().0]
     }
 
     fn push_inst(&mut self, inst: Instruction) {
@@ -137,20 +143,33 @@ impl<'a> Builder<'a> {
         d
     }
 
-    fn set_term(&mut self, term: Terminator) {
-        self.program.functions[self.at_fn.unwrap().0].blocks[self.at_bb.unwrap().0].term = term;
+    pub fn set_cond_br(&'a mut self, c: IntValue, a: BlockId, b: BlockId) {
+        let bb = self.at_bb.unwrap();
+        let f = self.get_current_fn();
+        f.blocks[bb.0].succ.clear();
+        f.blocks[bb.0].succ.insert(a);
+        f.blocks[bb.0].succ.insert(b);
+        f.blocks[a.0].pred.insert(bb);
+        f.blocks[b.0].pred.insert(bb);
+
+        f.blocks[bb.0].term = Terminator::CondBranch(c, a.into(), b.into());
     }
 
-    pub fn set_cond_br(&mut self, c: IntValue, a: BlockId, b: BlockId) {
-        self.set_term(Terminator::CondBranch(c, a.into(), b.into()))
+    pub fn set_uncond_br(&'a mut self, t: BlockId) {
+        let bb = self.at_bb.unwrap();
+        let f = self.get_current_fn();
+        f.blocks[bb.0].succ.clear();
+        f.blocks[bb.0].succ.insert(t);
+        f.blocks[t.0].pred.insert(bb);
+
+        f.blocks[bb.0].term = Terminator::UncondBranch(t.into());
     }
 
-    pub fn set_uncond_br(&mut self, t: BlockId) {
-        self.set_term(Terminator::UncondBranch(t.into()))
-    }
-
-    pub fn set_ret(&mut self, v: Option<Value>) {
-        self.set_term(Terminator::Return(v))
+    pub fn set_ret(&'a mut self, v: Option<Value>) {
+        let bb = self.at_bb.unwrap();
+        let f = self.get_current_fn();
+        f.blocks[bb.0].succ.clear();
+        f.blocks[bb.0].term = Terminator::Return(v);
     }
 
     pub fn done(mut self) -> Program<'a> {
