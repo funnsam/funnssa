@@ -52,28 +52,28 @@ impl fmt::Display for X64Reg {
         use X64RegType::*;
 
         match (self.typ, self.idx) {
-            (Byte, Ax) => write!(f, "al"),
-            (Byte, Bx) => write!(f, "bl"),
-            (Byte, Cx) => write!(f, "cl"),
-            (Byte, Sp) => write!(f, "spl"),
-            (Byte, Bp) => write!(f, "bph"),
-            (Byte, Di) => write!(f, "dil"),
-            (Byte, Si) => write!(f, "sil"),
-            (Byte, Dx) => write!(f, "dl"),
+            (Byte, Ax) => write!(f, "%al"),
+            (Byte, Bx) => write!(f, "%bl"),
+            (Byte, Cx) => write!(f, "%cl"),
+            (Byte, Sp) => write!(f, "%spl"),
+            (Byte, Bp) => write!(f, "%bph"),
+            (Byte, Di) => write!(f, "%dil"),
+            (Byte, Si) => write!(f, "%sil"),
+            (Byte, Dx) => write!(f, "%dl"),
 
-            (t, Ax) => write!(f, "{t}ax"),
-            (t, Bx) => write!(f, "{t}bx"),
-            (t, Cx) => write!(f, "{t}cx"),
-            (t, Sp) => write!(f, "{t}sp"),
-            (t, Bp) => write!(f, "{t}bp"),
-            (t, Di) => write!(f, "{t}di"),
-            (t, Si) => write!(f, "{t}si"),
-            (t, Dx) => write!(f, "{t}dx"),
+            (t, Ax) => write!(f, "%{t}ax"),
+            (t, Bx) => write!(f, "%{t}bx"),
+            (t, Cx) => write!(f, "%{t}cx"),
+            (t, Sp) => write!(f, "%{t}sp"),
+            (t, Bp) => write!(f, "%{t}bp"),
+            (t, Di) => write!(f, "%{t}di"),
+            (t, Si) => write!(f, "%{t}si"),
+            (t, Dx) => write!(f, "%{t}dx"),
 
-            (QWord, r) => write!(f, "{r}"),
-            (DWord, r) => write!(f, "{r}d"),
-            (Word, r) => write!(f, "{r}w"),
-            (Byte, r) => write!(f, "{r}b"),
+            (QWord, r) => write!(f, "%{r}"),
+            (DWord, r) => write!(f, "%{r}d"),
+            (Word, r) => write!(f, "%{r}w"),
+            (Byte, r) => write!(f, "%{r}b"),
         }
     }
 }
@@ -83,7 +83,17 @@ impl Register for X64Reg {
 
     fn get_regs() -> &'static [Self] {
         &[
-            Self { typ: X64RegType::QWord, idx: X64RegIdx::Ax },
+            Self { typ: X64RegType::QWord, idx: X64RegIdx::Di },
+            Self { typ: X64RegType::QWord, idx: X64RegIdx::Si },
+            Self { typ: X64RegType::QWord, idx: X64RegIdx::Dx },
+            Self { typ: X64RegType::QWord, idx: X64RegIdx::Cx },
+            Self { typ: X64RegType::QWord, idx: X64RegIdx::R8 },
+            Self { typ: X64RegType::QWord, idx: X64RegIdx::R9 },
+            Self { typ: X64RegType::QWord, idx: X64RegIdx::Bx },
+            Self { typ: X64RegType::QWord, idx: X64RegIdx::R12 },
+            Self { typ: X64RegType::QWord, idx: X64RegIdx::R13 },
+            Self { typ: X64RegType::QWord, idx: X64RegIdx::R14 },
+            Self { typ: X64RegType::QWord, idx: X64RegIdx::R15 },
         ]
     }
 }
@@ -115,7 +125,7 @@ pub enum X64Inst {
     CMov(X64Cond, X64VReg, X64VReg),
     Cmp(X64VReg, X64VReg),
     Int2(X64IntOp, X64VReg, X64VReg),
-    Int2I(X64IntOp, X64VReg, i64),
+    Int2I(X64IntOp, i64, X64VReg),
     Push(X64VReg),
     Pop(X64VReg),
     Jmp(Location),
@@ -149,16 +159,116 @@ impl Inst for X64Inst {
     type Register = X64Reg;
 
     fn register_regalloc(&self, ra: &mut impl RegAlloc<Self::Register>) {
+        match self {
+            Self::Mov(s, d) => {
+                ra.add_use(*s);
+                ra.define(*d);
+            },
+            Self::MovI(_, d) => {
+                ra.define(*d);
+            },
+            Self::CMov(_, s, d) => {
+                ra.add_use(*s);
+                ra.define(*d);
+            },
+            Self::Cmp(a, b) => {
+                ra.add_use(*a);
+                ra.add_use(*b);
+            },
+            Self::Int2(_, s, d) => {
+                ra.add_use(*s);
+                ra.add_use(*d);
+                ra.define(*d);
+            },
+            Self::Int2I(_, _, d) => {
+                ra.add_use(*d);
+                ra.define(*d);
+            },
+            Self::Push(r) => {
+                ra.add_use(*r);
+            },
+            Self::Pop(r) => {
+                ra.define(*r);
+            },
+            Self::Jmp(_) => {},
+            Self::Bne(_) => {},
+            Self::Ret => {},
+        }
     }
 
     fn apply_alloc(&mut self, ra: &[VReg<Self::Register>]) {
+        let apply = |r: &mut X64VReg| if let VReg::Virtual(v) = r {
+            *r = ra[*v];
+        };
+
+        match self {
+            Self::Mov(s, d) => {
+                apply(s);
+                apply(d);
+            },
+            Self::MovI(_, d) => {
+                apply(d);
+            },
+            Self::CMov(_, s, d) => {
+                apply(s);
+                apply(d);
+            },
+            Self::Cmp(a, b) => {
+                apply(a);
+                apply(b);
+            },
+            Self::Int2(_, s, d) => {
+                apply(s);
+                apply(d);
+                apply(d);
+            },
+            Self::Int2I(_, _, d) => {
+                apply(d);
+                apply(d);
+            },
+            Self::Push(r) => {
+                apply(r);
+            },
+            Self::Pop(r) => {
+                apply(r);
+            },
+            Self::Jmp(_) => {},
+            Self::Bne(_) => {},
+            Self::Ret => {},
+        }
     }
 
     fn apply_mandatory_transforms(vcode: &mut VCode<Self>) {
     }
 
     fn emit_assembly<W: std::io::Write>(f: &mut W, vcode: &VCode<Self>) -> std::io::Result<()> {
-        todo!()
+        for (i, n) in vcode.funcs.iter().enumerate() {
+            writeln!(f, ".set F{i}, {}", n.name)?;
+        }
+
+        for n in vcode.funcs.iter() {
+            if n.linkage == Linkage::External { continue; }
+
+            if n.linkage == Linkage::Public {
+                writeln!(f, ".global {}", n.name)?;
+            }
+
+            writeln!(f, "{}:", n.name)?;
+
+            for i in n.pre.iter() {
+                writeln!(f, "{i}")?;
+            }
+
+            for (bi, b) in n.body.iter().enumerate() {
+                writeln!(f, ".L{bi}:")?;
+
+                for i in b.iter() {
+                    writeln!(f, "{i}")?;
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -170,7 +280,7 @@ impl InstSelector for X64Selector {
     fn select_pre_fn(&mut self, gen: &mut VCodeGen<X64Inst>, args: &[ValueType]) {
         gen.push_inst(X64Inst::Push(X64RegIdx::Bp.into()));
         gen.push_inst(X64Inst::Mov(X64RegIdx::Sp.into(), X64RegIdx::Bp.into()));
-        gen.push_inst(X64Inst::Int2I(X64IntOp::Add, X64RegIdx::Sp.into(), 0));
+        gen.push_inst(X64Inst::Int2I(X64IntOp::Add, 0, X64RegIdx::Sp.into()));
     }
 
     fn select_inst(&mut self, gen: &mut VCodeGen<X64Inst>, inst: &Instruction) {
@@ -206,6 +316,35 @@ impl InstSelector for X64Selector {
                 gen.push_inst(X64Inst::Ret);
             },
             _ => todo!(),
+        }
+    }
+}
+
+impl fmt::Display for X64Inst {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Mov(s, d) => write!(f, "mov {s}, {d}"),
+            Self::MovI(s, d) => write!(f, "mov ${s}, {d}"),
+            Self::CMov(c, s, d) => write!(f, "cmov{c} {s}, {d}"),
+            Self::Cmp(a, b) => write!(f, "cmp {a}, {b}"),
+            Self::Int2(o, s, d) => write!(f, "{o} {s}, {d}"),
+            Self::Int2I(o, s, d) => write!(f, "{o} ${s}, {d}"),
+            Self::Push(r) => write!(f, "push {r}"),
+            Self::Pop(r) => write!(f, "pop {r}"),
+            Self::Jmp(d) => write!(f, "jmp {}", LocFmt(d)),
+            Self::Bne(d) => write!(f, "bne {}", LocFmt(d)),
+            Self::Ret => write!(f, "ret"),
+        }
+    }
+}
+
+struct LocFmt<'a>(&'a Location);
+
+impl fmt::Display for LocFmt<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            Location::Function(n) => write!(f, "F{n}"),
+            Location::Block(b) => write!(f, ".L{b}"),
         }
     }
 }
