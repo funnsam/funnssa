@@ -4,7 +4,7 @@ fn main() {
     let mut builder = builder::Builder::new();
 
     let typ = ValueType::Int(32);
-    let (start, _) = builder.create_function(Linkage::Public, "_start", vec![], Some(typ));
+    let (start, _) = builder.create_function(Linkage::Public, "main", vec![], Some(typ));
 
     builder.position_at_function(start);
     let l = builder.push_block();

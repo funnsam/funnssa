@@ -135,13 +135,17 @@ impl Inst for UrclInst {
             },
             Self::Imm(d, _) => ra.define(*d),
             Self::Bnz(_, c) => ra.add_use(*c),
-            Self::Llod(d, b, _) => {
+            Self::Llod(d, b, o) => {
                 // ra.define(*d);
-                // ra.add_use(*b);
+                ra.add_use(if *b != UrclReg::Sp.into() { *b } else { VReg::Spilled((*o) as usize) });
             },
-            Self::Lstr(b, _, v) => {
-                // ra.add_use(*b);
+            Self::Lstr(b, o, v) => {
                 // ra.add_use(*v);
+                if *b != UrclReg::Sp.into() {
+                    ra.add_use(*b);
+                } else {
+                    ra.define(VReg::Spilled((*o) as usize));
+                };
             },
             Self::Ret | Self::Jmp(_) | Self::Cal(_) => {},
         }
@@ -221,27 +225,25 @@ impl Inst for UrclInst {
                         Self::Ret | Self::Jmp(_) | Self::Cal(_) => {},
                     }
 
-                    let stk = |i| CALLEE_SAVE.len() as i64 + i as i64;
-
                     if let Some(d) = d_spilled {
                         frame_size = frame_size.max(d + 1);
                         inst.insert(
                             i + 1,
-                            Self::Lstr(UrclReg::Sp.into(), stk(d), SPILL_0.into()),
+                            Self::Lstr(UrclReg::Sp.into(), d as _, SPILL_0.into()),
                         );
                     }
                     if let Some(a) = a_spilled {
                         frame_size = frame_size.max(a + 1);
                         inst.insert(
                             i,
-                            Self::Llod(SPILL_0.into(), UrclReg::Sp.into(), stk(a)),
+                            Self::Llod(SPILL_0.into(), UrclReg::Sp.into(), a as _),
                         );
                     }
                     if let Some(b) = b_spilled {
                         frame_size = frame_size.max(b + 1);
                         inst.insert(
                             i,
-                            Self::Llod(SPILL_1.into(), UrclReg::Sp.into(), stk(b)),
+                            Self::Llod(SPILL_1.into(), UrclReg::Sp.into(), b as _),
                         );
                     }
 
@@ -254,12 +256,11 @@ impl Inst for UrclInst {
                 unspill(b);
             }
 
-            let frame_size = (frame_size + CALLEE_SAVE.len()) as i64;
             let update = |inst: &mut Vec<Self>| for i in inst.iter_mut() {
                 if let Self::Int2(UrclIntOp::Add, VReg::Real(UrclReg::Sp), Operand::Register(VReg::Real(UrclReg::Sp)), Operand::Immediate(v)) = i {
                     match *v {
-                        SP_INCR => *v = frame_size,
-                        SP_DECR => *v = -frame_size,
+                        SP_INCR => *v = frame_size as i64,
+                        SP_DECR => *v = -(frame_size as i64),
                         _ => {},
                     }
                 }

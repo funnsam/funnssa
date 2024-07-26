@@ -5,6 +5,26 @@
 use core::fmt;
 use crate::arch::*;
 
+const CALLER_SAVE: &[X64RegIdx] = &[
+    X64RegIdx::Ax,
+    X64RegIdx::Di,
+    X64RegIdx::Si,
+    X64RegIdx::Dx,
+    X64RegIdx::Cx,
+    X64RegIdx::R8,
+    X64RegIdx::R9,
+];
+
+const CALLEE_SAVE: &[X64RegIdx] = &[
+    X64RegIdx::Bx,
+    X64RegIdx::R12,
+    X64RegIdx::R13,
+    X64RegIdx::R14,
+    X64RegIdx::R15,
+];
+
+const FRAME_SIZE_MARKER: i64 = i64::MAX;
+
 pub type X64VReg = VReg<X64Reg>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -83,17 +103,18 @@ impl Register for X64Reg {
 
     fn get_regs() -> &'static [Self] {
         &[
-            Self { typ: X64RegType::QWord, idx: X64RegIdx::Di },
-            Self { typ: X64RegType::QWord, idx: X64RegIdx::Si },
-            Self { typ: X64RegType::QWord, idx: X64RegIdx::Dx },
-            Self { typ: X64RegType::QWord, idx: X64RegIdx::Cx },
-            Self { typ: X64RegType::QWord, idx: X64RegIdx::R8 },
-            Self { typ: X64RegType::QWord, idx: X64RegIdx::R9 },
             Self { typ: X64RegType::QWord, idx: X64RegIdx::Bx },
             Self { typ: X64RegType::QWord, idx: X64RegIdx::R12 },
             Self { typ: X64RegType::QWord, idx: X64RegIdx::R13 },
             Self { typ: X64RegType::QWord, idx: X64RegIdx::R14 },
             Self { typ: X64RegType::QWord, idx: X64RegIdx::R15 },
+            Self { typ: X64RegType::QWord, idx: X64RegIdx::Di },
+
+            Self { typ: X64RegType::QWord, idx: X64RegIdx::Si },
+            Self { typ: X64RegType::QWord, idx: X64RegIdx::Dx },
+            Self { typ: X64RegType::QWord, idx: X64RegIdx::Cx },
+            Self { typ: X64RegType::QWord, idx: X64RegIdx::R8 },
+            Self { typ: X64RegType::QWord, idx: X64RegIdx::R9 },
         ]
     }
 }
@@ -129,8 +150,9 @@ pub enum X64Inst {
     Push(X64VReg),
     Pop(X64VReg),
     Jmp(Location),
-    Bne(Location),
+    Jne(Location),
     Ret,
+    Leave,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, strum::Display)]
@@ -190,9 +212,7 @@ impl Inst for X64Inst {
             Self::Pop(r) => {
                 ra.define(*r);
             },
-            Self::Jmp(_) => {},
-            Self::Bne(_) => {},
-            Self::Ret => {},
+            Self::Jmp(_) | Self::Jne(_) | Self::Ret | Self::Leave => {},
         }
     }
 
@@ -224,7 +244,6 @@ impl Inst for X64Inst {
             },
             Self::Int2I(_, _, d) => {
                 apply(d);
-                apply(d);
             },
             Self::Push(r) => {
                 apply(r);
@@ -232,13 +251,106 @@ impl Inst for X64Inst {
             Self::Pop(r) => {
                 apply(r);
             },
-            Self::Jmp(_) => {},
-            Self::Bne(_) => {},
-            Self::Ret => {},
+            Self::Jmp(_) | Self::Jne(_) | Self::Ret | Self::Leave => {},
         }
     }
 
     fn apply_mandatory_transforms(vcode: &mut VCode<Self>) {
+        for f in vcode.funcs.iter_mut() {
+            let mut frame_size = 0;
+            let mut unspill = |inst: &mut Vec<Self>| {
+                let mut i = 0;
+                while i < inst.len() {
+                    let mut d_spilled = None;
+                    let mut a_spilled = None;
+                    let mut b_spilled = None;
+                    let mut ud = |d: &mut X64VReg| if let VReg::Spilled(s) = d {
+                        d_spilled = Some(*s);
+                    };
+                    let mut ua = |a: &mut X64VReg| if let VReg::Spilled(s) = a {
+                        a_spilled = Some(*s);
+                    };
+                    let mut ub = |b: &mut X64VReg| if let VReg::Spilled(s) = b {
+                        b_spilled = Some(*s);
+                    };
+
+                    match &mut inst[i] {
+                        Self::Mov(s, d) => {
+                            ua(s);
+                            ud(d);
+                        },
+                        Self::MovI(_, d) => {
+                            ud(d);
+                        },
+                        Self::CMov(_, s, d) => {
+                            ua(s);
+                            ud(d);
+                        },
+                        Self::Cmp(a, b) => {
+                            ua(a);
+                            ub(b);
+                        },
+                        Self::Int2(_, s, d) => {
+                            ua(s);
+                            ud(d);
+                        },
+                        Self::Int2I(_, _, d) => {
+                            ud(d);
+                        },
+                        Self::Push(r) => {
+                            ud(r);
+                        },
+                        Self::Pop(r) => {
+                            ua(r);
+                        },
+                        Self::Jmp(_) | Self::Jne(_) | Self::Ret | Self::Leave => {},
+                    }
+
+                    if let Some(d) = d_spilled {
+                        frame_size = frame_size.max(d + 1);
+                        // inst.insert(
+                        //     i + 1,
+                        //     Self::Lstr(UrclReg::Sp.into(), d as _, SPILL_0.into()),
+                        // );
+                    }
+                    if let Some(a) = a_spilled {
+                        frame_size = frame_size.max(a + 1);
+                        // inst.insert(
+                        //     i,
+                        //     Self::Llod(SPILL_0.into(), UrclReg::Sp.into(), a as _),
+                        // );
+                    }
+                    if let Some(b) = b_spilled {
+                        frame_size = frame_size.max(b + 1);
+                        // inst.insert(
+                        //     i,
+                        //     Self::Llod(SPILL_0.into(), UrclReg::Sp.into(), a as _),
+                        // );
+                    }
+
+                    i += 1;
+                }
+            };
+
+            unspill(&mut f.pre);
+            for b in f.body.iter_mut() {
+                unspill(b);
+            }
+
+            let update = |inst: &mut Vec<Self>| for i in inst.iter_mut() {
+                if let Self::Int2I(_, v, VReg::Real(X64Reg { idx: X64RegIdx::Sp, .. })) = i {
+                    match *v {
+                        FRAME_SIZE_MARKER => *v = frame_size as i64 * 8,
+                        _ => {},
+                    }
+                }
+            };
+
+            update(&mut f.pre);
+            for b in f.body.iter_mut() {
+                update(b);
+            }
+        }
     }
 
     fn emit_assembly<W: std::io::Write>(f: &mut W, vcode: &VCode<Self>) -> std::io::Result<()> {
@@ -280,7 +392,11 @@ impl InstSelector for X64Selector {
     fn select_pre_fn(&mut self, gen: &mut VCodeGen<X64Inst>, args: &[ValueType]) {
         gen.push_inst(X64Inst::Push(X64RegIdx::Bp.into()));
         gen.push_inst(X64Inst::Mov(X64RegIdx::Sp.into(), X64RegIdx::Bp.into()));
-        gen.push_inst(X64Inst::Int2I(X64IntOp::Add, 0, X64RegIdx::Sp.into()));
+        gen.push_inst(X64Inst::Int2I(X64IntOp::Sub, FRAME_SIZE_MARKER, X64RegIdx::Sp.into()));
+
+        for (ri, r) in CALLEE_SAVE.iter().enumerate() {
+            gen.push_inst(X64Inst::Mov((*r).into(), VReg::Spilled(ri)));
+        }
     }
 
     fn select_inst(&mut self, gen: &mut VCodeGen<X64Inst>, inst: &Instruction) {
@@ -311,8 +427,11 @@ impl InstSelector for X64Selector {
                     gen.push_inst(X64Inst::Mov(v, X64RegIdx::Ax.into()));
                 }
 
-                gen.push_inst(X64Inst::Mov(X64RegIdx::Bp.into(), X64RegIdx::Sp.into()));
-                gen.push_inst(X64Inst::Pop(X64RegIdx::Bp.into()));
+                for (ri, r) in CALLEE_SAVE.iter().enumerate() {
+                    gen.push_inst(X64Inst::Mov(VReg::Spilled(ri), (*r).into()));
+                }
+
+                gen.push_inst(X64Inst::Leave);
                 gen.push_inst(X64Inst::Ret);
             },
             _ => todo!(),
@@ -323,17 +442,18 @@ impl InstSelector for X64Selector {
 impl fmt::Display for X64Inst {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Mov(s, d) => write!(f, "mov {s}, {d}"),
-            Self::MovI(s, d) => write!(f, "mov ${s}, {d}"),
-            Self::CMov(c, s, d) => write!(f, "cmov{c} {s}, {d}"),
-            Self::Cmp(a, b) => write!(f, "cmp {a}, {b}"),
-            Self::Int2(o, s, d) => write!(f, "{o} {s}, {d}"),
-            Self::Int2I(o, s, d) => write!(f, "{o} ${s}, {d}"),
-            Self::Push(r) => write!(f, "push {r}"),
-            Self::Pop(r) => write!(f, "pop {r}"),
+            Self::Mov(s, d) => write!(f, "mov {}, {}", VRegFmt(s), VRegFmt(d)),
+            Self::MovI(s, d) => write!(f, "mov ${s}, {}", VRegFmt(d)),
+            Self::CMov(c, s, d) => write!(f, "cmov{c} {}, {}", VRegFmt(s), VRegFmt(d)),
+            Self::Cmp(a, b) => write!(f, "cmp {}, {}", VRegFmt(a), VRegFmt(b)),
+            Self::Int2(o, s, d) => write!(f, "{o} {}, {}", VRegFmt(s), VRegFmt(d)),
+            Self::Int2I(o, s, d) => write!(f, "{o} ${s}, {}", VRegFmt(d)),
+            Self::Push(r) => write!(f, "push {}", VRegFmt(r)),
+            Self::Pop(r) => write!(f, "pop {}", VRegFmt(r)),
             Self::Jmp(d) => write!(f, "jmp {}", LocFmt(d)),
-            Self::Bne(d) => write!(f, "bne {}", LocFmt(d)),
+            Self::Jne(d) => write!(f, "jne {}", LocFmt(d)),
             Self::Ret => write!(f, "ret"),
+            Self::Leave => write!(f, "leave"),
         }
     }
 }
@@ -345,6 +465,19 @@ impl fmt::Display for LocFmt<'_> {
         match self.0 {
             Location::Function(n) => write!(f, "F{n}"),
             Location::Block(b) => write!(f, ".L{b}"),
+        }
+    }
+}
+
+
+struct VRegFmt<'a>(&'a X64VReg);
+
+impl fmt::Display for VRegFmt<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            VReg::Real(r) => r.fmt(f),
+            VReg::Virtual(v) => write!(f, "v{v}"),
+            VReg::Spilled(s) => write!(f, "{}(%rbp)", -8 - ((*s as isize) * 8)),
         }
     }
 }
