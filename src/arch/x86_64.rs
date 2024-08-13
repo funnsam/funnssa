@@ -143,14 +143,14 @@ impl From<X64RegIdx> for VReg<X64Reg> {
 pub enum X64Inst {
     Mov(X64VReg, X64VReg),
     MovI(i64, X64VReg),
-    CMov(X64Cond, X64VReg, X64VReg),
+    CSet(X64Cond, X64VReg),
     Cmp(X64VReg, X64VReg),
     Int2(X64IntOp, X64VReg, X64VReg),
     Int2I(X64IntOp, i64, X64VReg),
     Push(X64VReg),
     Pop(X64VReg),
     Jmp(Location),
-    Jne(Location),
+    Jnz(Location),
     Ret,
     Leave,
 }
@@ -160,6 +160,10 @@ pub enum X64Inst {
 pub enum X64Cond {
     E,
     Ne,
+    B,
+    Ae,
+    Be,
+    A,
     L,
     Le,
     G,
@@ -177,6 +181,42 @@ pub enum X64IntOp {
     Xor,
 }
 
+impl TryFrom<IntOp> for X64Cond {
+    type Error = ();
+
+    fn try_from(value: IntOp) -> Result<Self, Self::Error> {
+        match value {
+            IntOp::Eq => Ok(Self::E),
+            IntOp::Ne => Ok(Self::Ne),
+            IntOp::ULt => Ok(Self::B),
+            IntOp::UGe => Ok(Self::Ae),
+            IntOp::ULe => Ok(Self::Be),
+            IntOp::UGt => Ok(Self::A),
+            IntOp::SLt => Ok(Self::L),
+            IntOp::SLe => Ok(Self::Le),
+            IntOp::SGt => Ok(Self::G),
+            IntOp::SGe => Ok(Self::Ge),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TryFrom<IntOp> for X64IntOp {
+    type Error = ();
+
+    fn try_from(value: IntOp) -> Result<Self, Self::Error> {
+        match value {
+            IntOp::Add => Ok(Self::Add),
+            IntOp::Sub => Ok(Self::Sub),
+            // IntOp::Mul => Ok(Self::IMul),
+            IntOp::And => Ok(Self::And),
+            IntOp::Or => Ok(Self::Or),
+            IntOp::Xor => Ok(Self::Xor),
+            _ => Err(()),
+        }
+    }
+}
+
 impl Inst for X64Inst {
     type Register = X64Reg;
 
@@ -189,8 +229,7 @@ impl Inst for X64Inst {
             Self::MovI(_, d) => {
                 ra.define(*d);
             },
-            Self::CMov(_, s, d) => {
-                ra.add_use(*s);
+            Self::CSet(_, d) => {
                 ra.define(*d);
             },
             Self::Cmp(a, b) => {
@@ -212,7 +251,7 @@ impl Inst for X64Inst {
             Self::Pop(r) => {
                 ra.define(*r);
             },
-            Self::Jmp(_) | Self::Jne(_) | Self::Ret | Self::Leave => {},
+            Self::Jmp(_) | Self::Jnz(_) | Self::Ret | Self::Leave => {},
         }
     }
 
@@ -229,8 +268,7 @@ impl Inst for X64Inst {
             Self::MovI(_, d) => {
                 apply(d);
             },
-            Self::CMov(_, s, d) => {
-                apply(s);
+            Self::CSet(_, d) => {
                 apply(d);
             },
             Self::Cmp(a, b) => {
@@ -251,7 +289,7 @@ impl Inst for X64Inst {
             Self::Pop(r) => {
                 apply(r);
             },
-            Self::Jmp(_) | Self::Jne(_) | Self::Ret | Self::Leave => {},
+            Self::Jmp(_) | Self::Jnz(_) | Self::Ret | Self::Leave => {},
         }
     }
 
@@ -282,8 +320,7 @@ impl Inst for X64Inst {
                         Self::MovI(_, d) => {
                             ud(d);
                         },
-                        Self::CMov(_, s, d) => {
-                            ua(s);
+                        Self::CSet(_, d) => {
                             ud(d);
                         },
                         Self::Cmp(a, b) => {
@@ -303,7 +340,7 @@ impl Inst for X64Inst {
                         Self::Pop(r) => {
                             ua(r);
                         },
-                        Self::Jmp(_) | Self::Jne(_) | Self::Ret | Self::Leave => {},
+                        Self::Jmp(_) | Self::Jnz(_) | Self::Ret | Self::Leave => {},
                     }
 
                     if let Some(d) = d_spilled {
@@ -350,6 +387,18 @@ impl Inst for X64Inst {
             for b in f.body.iter_mut() {
                 update(b);
             }
+        }
+    }
+
+    fn peephole_opt(
+        area: &[Self],
+        bi: Option<BlockId>,
+    ) -> Option<(Vec<Self>, usize)> {
+        match area {
+            [Self::Mov(v, d), ..] if d == v => Some((vec![], 1)),
+            [Self::Jmp(Location::Block(t))] if bi.map_or(false, |b| b.0 + 1 == *t) => Some((vec![], 1)),
+            [Self::MovI(0, d), ..] => Some((vec![Self::Int2(X64IntOp::Xor, *d, *d)], 1)),
+            _ => None,
         }
     }
 
@@ -405,14 +454,28 @@ impl InstSelector for X64Selector {
                 let d = gen.get_value_vreg(d.id);
                 gen.push_inst(X64Inst::MovI(*v as i64, d));
             },
-            Instruction::IntOp(IntOp::Add, d, a, b) => {
+            Instruction::IntOp(op, d, a, b) if X64Cond::try_from(*op).is_ok() => {
+                let d = gen.get_value_vreg(d.id);
+                let a = gen.get_value_vreg(a.id);
+                let b = gen.get_value_vreg(b.id);
+                gen.push_inst(X64Inst::Cmp(b, a));
+                // TODO: make `d` 8-bits bc gas is confused
+                // -- requires extra attrs in vregs.. kinda screwed up
+                gen.push_inst(X64Inst::CSet((*op).try_into().unwrap(), d));
+            },
+            Instruction::IntOp(op, d, a, b) => {
                 let d = gen.get_value_vreg(d.id);
                 let a = gen.get_value_vreg(a.id);
                 let b = gen.get_value_vreg(b.id);
                 gen.push_inst(X64Inst::Mov(a, d));
-                gen.push_inst(X64Inst::Int2(X64IntOp::Add, b, d));
+                gen.push_inst(X64Inst::Int2((*op).try_into().unwrap(), b, d));
             },
-            _ => todo!(),
+            Instruction::Copy(d, v) => {
+                let d = gen.get_value_vreg(d.id);
+                let v = gen.get_value_vreg(v.id);
+                gen.push_inst(X64Inst::Mov(v, d));
+            },
+            _ => todo!("{inst}"),
         }
     }
 
@@ -420,6 +483,12 @@ impl InstSelector for X64Selector {
         match term {
             Terminator::UncondBranch(t) => {
                 gen.push_inst(X64Inst::Jmp(t.target.into()));
+            },
+            Terminator::CondBranch(c, a, b) => {
+                let c = gen.get_value_vreg(c.id);
+                gen.push_inst(X64Inst::Int2(X64IntOp::Or, c, c));
+                gen.push_inst(X64Inst::Jnz(a.target.into()));
+                gen.push_inst(X64Inst::Jmp(b.target.into()));
             },
             Terminator::Return(v) => {
                 if let Some(v) = v {
@@ -434,7 +503,7 @@ impl InstSelector for X64Selector {
                 gen.push_inst(X64Inst::Leave);
                 gen.push_inst(X64Inst::Ret);
             },
-            _ => todo!(),
+            _ => todo!("{term}"),
         }
     }
 }
@@ -444,14 +513,14 @@ impl fmt::Display for X64Inst {
         match self {
             Self::Mov(s, d) => write!(f, "mov {}, {}", VRegFmt(s), VRegFmt(d)),
             Self::MovI(s, d) => write!(f, "mov ${s}, {}", VRegFmt(d)),
-            Self::CMov(c, s, d) => write!(f, "cmov{c} {}, {}", VRegFmt(s), VRegFmt(d)),
+            Self::CSet(c, d) => write!(f, "set{c} {}", VRegFmt(d)),
             Self::Cmp(a, b) => write!(f, "cmp {}, {}", VRegFmt(a), VRegFmt(b)),
             Self::Int2(o, s, d) => write!(f, "{o} {}, {}", VRegFmt(s), VRegFmt(d)),
             Self::Int2I(o, s, d) => write!(f, "{o} ${s}, {}", VRegFmt(d)),
             Self::Push(r) => write!(f, "push {}", VRegFmt(r)),
             Self::Pop(r) => write!(f, "pop {}", VRegFmt(r)),
             Self::Jmp(d) => write!(f, "jmp {}", LocFmt(d)),
-            Self::Jne(d) => write!(f, "jne {}", LocFmt(d)),
+            Self::Jnz(d) => write!(f, "jnz {}", LocFmt(d)),
             Self::Ret => write!(f, "ret"),
             Self::Leave => write!(f, "leave"),
         }

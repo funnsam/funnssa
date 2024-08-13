@@ -4,17 +4,8 @@ fn main() {
     let mut builder = builder::Builder::new();
 
     let typ = ValueType::Int(32);
-    let (start, _) = builder.create_function(Linkage::Public, "_start", vec![], None);
-    let (fib, _) = builder.create_function(Linkage::Public, "fib", vec![], None);
+    let (fib, _) = builder.create_function(Linkage::Public, "main", vec![], Some(typ));
     let (print, _) = builder.create_function(Linkage::External, "print", vec![typ], None);
-
-    {
-        builder.position_at_function(start);
-        let l = builder.push_block();
-        builder.position_at_bb(l);
-        let _ = builder.push_call(fib, vec![]);
-        builder.set_ret(None);
-    }
 
     {
         builder.position_at_function(fib);
@@ -38,7 +29,7 @@ fn main() {
         let yv = builder.push_load(y, typ).try_into().unwrap();
         let nx = builder.push_int_op(IntOp::Add, xv, yv);
         let ny = builder.push_int_op(IntOp::Sub, nx, yv);
-        builder.push_call(print, vec![ny.into()]);
+        // builder.push_call(print, vec![ny.into()]);
         builder.push_store(x, nx);
         builder.push_store(y, ny);
 
@@ -46,7 +37,8 @@ fn main() {
         builder.set_cond_br(c, iter, exit);
 
         builder.position_at_bb(exit);
-        builder.set_ret(None);
+        let zero = builder.push_int_const(32, 0);
+        builder.set_ret(Some(zero.into()));
     }
 
     println!("{builder}");
@@ -54,7 +46,7 @@ fn main() {
     prog.print_cfg();
     println!("{prog}");
 
-    let sel = arch::urcl::UrclSelector;
+    let sel = arch::x86_64::X64Selector;
     let vc = arch::VCode::generate::<_, regalloc::linear::LinearAlloc<_>>(prog, sel);
 
     vc.emit_assembly(&mut std::io::stdout()).unwrap();

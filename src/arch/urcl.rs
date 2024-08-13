@@ -182,7 +182,8 @@ impl Inst for UrclInst {
 
     fn apply_mandatory_transforms(vcode: &mut VCode<Self>) {
         for f in vcode.funcs.iter_mut() {
-            let mut frame_size = 0;
+            let mut frame_size = CALLEE_SAVE.len();
+
             let mut unspill = |inst: &mut Vec<Self>| {
                 let mut i = 0;
                 while i < inst.len() {
