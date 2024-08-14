@@ -47,7 +47,7 @@ fn main() {
     println!("{prog}");
 
     let sel = arch::x86_64::X64Selector;
-    let vc = arch::VCode::generate::<_, regalloc::linear::LinearAlloc<_>>(prog, sel);
+    let vc = arch::VCode::generate::<_, regalloc::graph::GraphAlloc<_>>(prog, sel);
 
     vc.emit_assembly(&mut std::io::stdout()).unwrap();
 }

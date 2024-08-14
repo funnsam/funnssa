@@ -418,9 +418,9 @@ impl InstSelector for X64Selector {
         gen.push_inst(X64Inst::Mov(X64BitSize::Quad, X64Reg::Sp.into(), X64Reg::Bp.into()));
         gen.push_inst(X64Inst::Int2I(X64BitSize::Quad, X64IntOp::Sub, FRAME_SIZE_MARKER, X64Reg::Sp.into()));
 
-        for (ri, r) in CALLEE_SAVE.iter().enumerate() {
-            gen.push_inst(X64Inst::Mov(X64BitSize::Quad, (*r).into(), VReg::Spilled(ri)));
-        }
+        // for (ri, r) in CALLEE_SAVE.iter().enumerate() {
+        //     gen.push_inst(X64Inst::Mov(X64BitSize::Quad, (*r).into(), gen.vreg_alloc.alloc_virtual()));
+        // }
     }
 
     fn select_inst(&mut self, gen: &mut VCodeGen<X64Inst>, inst: &Instruction) {
@@ -474,9 +474,9 @@ impl InstSelector for X64Selector {
                     gen.push_inst(X64Inst::Mov(bits, v, X64Reg::Ax.into()));
                 }
 
-                for (ri, r) in CALLEE_SAVE.iter().enumerate() {
-                    gen.push_inst(X64Inst::Mov(X64BitSize::Quad, VReg::Spilled(ri), (*r).into()));
-                }
+                // for (ri, r) in CALLEE_SAVE.iter().enumerate() {
+                //     gen.push_inst(X64Inst::Mov(X64BitSize::Quad, VReg::Spilled(ri), (*r).into()));
+                // }
 
                 gen.push_inst(X64Inst::Leave);
                 gen.push_inst(X64Inst::Ret);

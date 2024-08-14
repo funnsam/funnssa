@@ -1,14 +1,14 @@
 use crate::*;
 
 pub mod construct;
-pub mod destruct;
+// pub mod destruct;
 pub mod par_move;
 
 impl Function<'_> {
     pub fn do_everything(&mut self) {
         if self.linkage != Linkage::External {
             self.construct_ssa();
-            self.destruct_from_ssa();
+            // self.destruct_from_ssa();
             self.delete_unused();
         }
     }

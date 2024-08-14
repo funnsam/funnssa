@@ -8,7 +8,7 @@ pub mod urcl;
 #[cfg(any(feature = "arch-x86_64", all(feature = "arch-native", target_arch = "x86_64")))]
 pub mod x86_64;
 
-const PEEPHOLE_OPT_ITERS: usize = 2048;
+const PEEPHOLE_OPT_ITERS: usize = 0; //2048;
 
 pub trait InstSelector: Sized {
     type Instruction: Inst;
@@ -109,12 +109,14 @@ impl<'a, I: Inst> VCode<'a, I> {
         mut sel: S,
     ) -> Self {
         let mut gen = VCodeGen::new();
+
         for (fi, f) in ir.functions.iter().enumerate() {
             gen.at_fn = Some(fi);
             gen.vcode.funcs.push(VFunction {
                 linkage: f.linkage,
                 name: f.name,
                 value_to_vreg: HashMap::new(),
+
                 pre: vec![],
                 body: vec![],
             });
@@ -135,23 +137,25 @@ impl<'a, I: Inst> VCode<'a, I> {
         let mut ra = A::new_sized(gen.vreg_alloc.0);
         let mut alloc = vec![VReg::Virtual(0); gen.vreg_alloc.0];
 
-        for f in gen.vcode.funcs.iter_mut() {
+        for (fi, f) in gen.vcode.funcs.iter_mut().enumerate() {
             for i in f.pre.iter() {
                 i.register_regalloc(&mut ra);
                 ra.next_inst();
             }
 
-            for b in f.body.iter() {
-                ra.next_block();
+            ra.prologue_end();
 
+            for b in f.body.iter() {
                 for i in b.iter() {
                     i.register_regalloc(&mut ra);
                     ra.next_inst();
                 }
+
+                ra.next_block();
             }
 
-            ra.alloc_regs(&mut alloc);
-            for i in f.pre.iter_mut() {
+            ra.alloc_regs(&mut alloc, cfg::Cfg::new(&ir.functions[fi]));
+            /* for i in f.pre.iter_mut() {
                 i.apply_alloc(&alloc);
             }
 
@@ -159,7 +163,7 @@ impl<'a, I: Inst> VCode<'a, I> {
                 for i in b.iter_mut() {
                     i.apply_alloc(&alloc);
                 }
-            }
+            } */
 
             ra.next_fn();
         }

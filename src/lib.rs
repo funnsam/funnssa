@@ -13,6 +13,7 @@
 
 pub mod algo;
 pub mod arch;
+pub mod cfg;
 pub mod builder;
 pub mod regalloc;
 pub mod types;

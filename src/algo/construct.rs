@@ -296,7 +296,7 @@ impl Function<'_> {
         dom
     }
 
-    fn pred(&self) -> BlockIdSet {
+    pub(crate) fn pred(&self) -> BlockIdSet {
         let mut pred = vec![HashSet::new(); self.blocks.len()];
 
         for b in 0..self.blocks.len() {

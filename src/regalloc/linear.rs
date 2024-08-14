@@ -4,7 +4,6 @@ use super::*;
 
 type LiveRange = core::ops::Range<usize>;
 
-#[deprecated]
 pub struct LinearAlloc<R: Register> {
     reg_v: Vec<LinearReg<R>>,
     reg_r: Vec<LinearReg<R>>,
@@ -90,7 +89,7 @@ impl<R: Register + 'static> RegAlloc<R> for LinearAlloc<R> {
         lr.try_coalesce = Some(to);
     }
 
-    fn alloc_regs(&mut self, alloc: &mut [VReg<R>]) {
+    fn alloc_regs(&mut self, alloc: &mut [VReg<R>], _cfg: Cfg) {
         let mut regs = R::get_regs().to_vec();
         let mut using_regs = Vec::new();
         let mut spilled = HashSet::new();

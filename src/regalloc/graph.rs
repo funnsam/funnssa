@@ -4,14 +4,20 @@ use std::collections::HashMap;
 type InnerRange = core::ops::Range<usize>;
 
 pub struct GraphAlloc<R: Register> {
-    blocks: Vec<HashMap<VReg<R>, InnerRange>>,
+    first_def: HashMap<VReg<R>, (Option<BlockId>, usize)>,
+    last_uses: HashMap<VReg<R>, HashMap<Option<BlockId>, usize>>,
+
+    at_block: Option<BlockId>,
     at_inst: usize,
 }
 
-impl<R: Register + 'static> RegAlloc<R> for GraphAlloc<R> {
+impl<R: Register + 'static + core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
     fn new_sized(_size: usize) -> Self {
         Self {
-            blocks: Vec::new(),
+            first_def: HashMap::new(),
+            last_uses: HashMap::new(),
+
+            at_block: None,
             at_inst: 0,
         }
     }
@@ -21,31 +27,41 @@ impl<R: Register + 'static> RegAlloc<R> for GraphAlloc<R> {
     }
 
     fn next_block(&mut self) {
-        self.blocks.push(HashMap::new());
+        if let Some(ab) = &mut self.at_block {
+            ab.0 += 1;
+        }
+
         self.at_inst = 0;
     }
 
     fn next_fn(&mut self) {
-        self.blocks.clear();
+        self.first_def.clear();
+        self.last_uses.clear();
+
+        self.at_block = None;
+        self.at_inst = 0;
+    }
+
+    fn prologue_end(&mut self) {
+        self.at_block = Some(BlockId(0));
+        self.at_inst = 0;
     }
 
     fn define(&mut self, vr: VReg<R>) {
-        let range = self.at_inst..self.at_inst;
-        self.get_block().entry(vr).or_insert(range);
+        self.first_def.insert(vr, (self.at_block, self.at_inst));
     }
 
     fn add_use(&mut self, vr: VReg<R>) {
+        self.last_uses.entry(vr)
+            .or_default()
+            .insert(self.at_block, self.at_inst);
     }
 
     fn coalesce_move(&mut self, from: VReg<R>, to: VReg<R>) {
     }
 
-    fn alloc_regs(&mut self, alloc: &mut [VReg<R>]) {
-    }
-}
-
-impl<R: Register> GraphAlloc<R> {
-    fn get_block<'a>(&'a mut self) -> &'a mut HashMap<VReg<R>, InnerRange> {
-        self.blocks.last_mut().unwrap()
+    fn alloc_regs(&mut self, alloc: &mut [VReg<R>], cfg: cfg::Cfg) {
+        println!("{:?}", self.first_def);
+        println!("{:?}", self.last_uses);
     }
 }

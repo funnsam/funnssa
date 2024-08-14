@@ -1,7 +1,8 @@
 use core::fmt;
+use crate::*;
 
 pub mod graph;
-pub mod linear;
+// pub mod linear;
 
 pub trait Register: Sized + Clone + Copy + fmt::Display + Eq + core::hash::Hash + TryFrom<usize> + Into<usize> {
     const REG_COUNT: usize;
@@ -14,12 +15,13 @@ pub trait RegAlloc<R: Register> where Self: Sized {
     fn next_inst(&mut self);
     fn next_block(&mut self);
     fn next_fn(&mut self);
+    fn prologue_end(&mut self) { self.next_block(); }
 
     fn define(&mut self, vr: VReg<R>);
     fn add_use(&mut self, vr: VReg<R>);
     fn coalesce_move(&mut self, from: VReg<R>, to: VReg<R>);
 
-    fn alloc_regs(&mut self, alloc: &mut [VReg<R>]);
+    fn alloc_regs(&mut self, alloc: &mut [VReg<R>], cfg: cfg::Cfg);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -53,15 +55,5 @@ impl VRegAlloc {
         let id = self.0;
         self.0 += 1;
         VReg::Virtual(id)
-    }
-}
-
-pub struct Cfg<'a> {
-    func: &'a super::Function<'a>,
-}
-
-impl<'a> Cfg<'a> {
-    fn new(func: &'a super::Function<'a>) -> Self {
-        Self { func }
     }
 }
