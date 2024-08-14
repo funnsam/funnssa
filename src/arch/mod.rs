@@ -138,13 +138,15 @@ impl<'a, I: Inst> VCode<'a, I> {
         for f in gen.vcode.funcs.iter_mut() {
             for i in f.pre.iter() {
                 i.register_regalloc(&mut ra);
-                ra.next();
+                ra.next_inst();
             }
 
             for b in f.body.iter() {
+                ra.next_block();
+
                 for i in b.iter() {
                     i.register_regalloc(&mut ra);
-                ra.next();
+                    ra.next_inst();
                 }
             }
 
@@ -158,7 +160,8 @@ impl<'a, I: Inst> VCode<'a, I> {
                     i.apply_alloc(&alloc);
                 }
             }
-            ra.clear();
+
+            ra.next_fn();
         }
 
         I::apply_mandatory_transforms(&mut gen.vcode);

@@ -4,6 +4,7 @@ use super::*;
 
 type LiveRange = core::ops::Range<usize>;
 
+#[deprecated]
 pub struct LinearAlloc<R: Register> {
     reg_v: Vec<LinearReg<R>>,
     reg_r: Vec<LinearReg<R>>,
@@ -48,8 +49,16 @@ impl<R: Register + 'static> RegAlloc<R> for LinearAlloc<R> {
         }
     }
 
-    fn next(&mut self) {
+    fn next_inst(&mut self) {
         self.range.end += 1;
+    }
+
+    fn next_block(&mut self) {}
+
+    fn next_fn(&mut self) {
+        self.reg_r.fill(LinearReg::default());
+        self.reg_s.clear();
+        self.range.start = self.range.end;
     }
 
     fn define(&mut self, vr: VReg<R>) {
@@ -134,11 +143,5 @@ impl<R: Register + 'static> RegAlloc<R> for LinearAlloc<R> {
                 }
             }
         }
-    }
-
-    fn clear(&mut self) {
-        self.reg_r.fill(LinearReg::default());
-        self.reg_s.clear();
-        self.range.start = self.range.end;
     }
 }

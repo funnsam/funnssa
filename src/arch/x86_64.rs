@@ -43,11 +43,11 @@ pub enum X64BitSize {
 impl X64BitSize {
     pub fn from_bit_size(b: usize) -> Self {
         match b {
-            1 | 8 => Self::Byte,
-            16 => Self::Word,
-            32 => Self::Long,
-            64 => Self::Quad,
-            _ => todo!("{b}"),
+            ..=8 => Self::Byte,
+            ..=16 => Self::Word,
+            ..=32 => Self::Long,
+            ..=64 => Self::Quad,
+            _ => todo!(">64 bits ({b})"),
         }
     }
 
