@@ -4,50 +4,64 @@
 
 use core::fmt;
 use crate::arch::*;
+use strum::EnumMessage;
 
-const CALLER_SAVE: &[X64RegIdx] = &[
-    X64RegIdx::Ax,
-    X64RegIdx::Di,
-    X64RegIdx::Si,
-    X64RegIdx::Dx,
-    X64RegIdx::Cx,
-    X64RegIdx::R8,
-    X64RegIdx::R9,
+const CALLER_SAVE: &[X64Reg] = &[
+    X64Reg::Ax,
+    X64Reg::Di,
+    X64Reg::Si,
+    X64Reg::Dx,
+    X64Reg::Cx,
+    X64Reg::R8,
+    X64Reg::R9,
 ];
 
-const CALLEE_SAVE: &[X64RegIdx] = &[
-    X64RegIdx::Bx,
-    X64RegIdx::R12,
-    X64RegIdx::R13,
-    X64RegIdx::R14,
-    X64RegIdx::R15,
+const CALLEE_SAVE: &[X64Reg] = &[
+    X64Reg::Bx,
+    X64Reg::R12,
+    X64Reg::R13,
+    X64Reg::R14,
+    X64Reg::R15,
 ];
 
 const FRAME_SIZE_MARKER: i64 = i64::MAX;
 
 pub type X64VReg = VReg<X64Reg>;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct X64Reg {
-    typ: X64RegType,
-    idx: X64RegIdx,
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, strum::Display, strum::EnumMessage)]
+pub enum X64BitSize {
+    #[strum(serialize = "q", message = "r")]
+    Quad,
+    #[strum(serialize = "l", message = "e")]
+    Long,
+    #[strum(serialize = "w")]
+    Word,
+    #[strum(serialize = "b")]
+    Byte,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, strum::Display)]
-enum X64RegType {
-    #[strum(serialize = "r")]
-    QWord,
-    #[strum(serialize = "e")]
-    DWord,
-    #[strum(serialize = "")]
-    Word,
-    #[strum(serialize = "")]
-    Byte,
+impl X64BitSize {
+    pub fn from_bit_size(b: usize) -> Self {
+        match b {
+            1 | 8 => Self::Byte,
+            16 => Self::Word,
+            32 => Self::Long,
+            64 => Self::Quad,
+            _ => todo!("{b}"),
+        }
+    }
+
+    pub fn from_vt(vt: &ValueType) -> Self {
+        match vt {
+            ValueType::Int(s) => Self::from_bit_size(*s),
+            ValueType::Ptr => Self::Quad,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, strum::Display, strum::EnumCount, strum::FromRepr)]
 #[strum(serialize_all = "lowercase")]
-enum X64RegIdx {
+pub enum X64Reg {
     Ax,
     Bx,
     Cx,
@@ -66,55 +80,23 @@ enum X64RegIdx {
     R15,
 }
 
-impl fmt::Display for X64Reg {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use X64RegIdx::*;
-        use X64RegType::*;
-
-        match (self.typ, self.idx) {
-            (Byte, Ax) => write!(f, "%al"),
-            (Byte, Bx) => write!(f, "%bl"),
-            (Byte, Cx) => write!(f, "%cl"),
-            (Byte, Sp) => write!(f, "%spl"),
-            (Byte, Bp) => write!(f, "%bph"),
-            (Byte, Di) => write!(f, "%dil"),
-            (Byte, Si) => write!(f, "%sil"),
-            (Byte, Dx) => write!(f, "%dl"),
-
-            (t, Ax) => write!(f, "%{t}ax"),
-            (t, Bx) => write!(f, "%{t}bx"),
-            (t, Cx) => write!(f, "%{t}cx"),
-            (t, Sp) => write!(f, "%{t}sp"),
-            (t, Bp) => write!(f, "%{t}bp"),
-            (t, Di) => write!(f, "%{t}di"),
-            (t, Si) => write!(f, "%{t}si"),
-            (t, Dx) => write!(f, "%{t}dx"),
-
-            (QWord, r) => write!(f, "%{r}"),
-            (DWord, r) => write!(f, "%{r}d"),
-            (Word, r) => write!(f, "%{r}w"),
-            (Byte, r) => write!(f, "%{r}b"),
-        }
-    }
-}
-
 impl Register for X64Reg {
-    const REG_COUNT: usize = <X64RegIdx as strum::EnumCount>::COUNT;
+    const REG_COUNT: usize = <X64Reg as strum::EnumCount>::COUNT;
 
     fn get_regs() -> &'static [Self] {
         &[
-            Self { typ: X64RegType::QWord, idx: X64RegIdx::Bx },
-            Self { typ: X64RegType::QWord, idx: X64RegIdx::R12 },
-            Self { typ: X64RegType::QWord, idx: X64RegIdx::R13 },
-            Self { typ: X64RegType::QWord, idx: X64RegIdx::R14 },
-            Self { typ: X64RegType::QWord, idx: X64RegIdx::R15 },
-            Self { typ: X64RegType::QWord, idx: X64RegIdx::Di },
+            X64Reg::Bx,
+            X64Reg::R12,
+            X64Reg::R13,
+            X64Reg::R14,
+            X64Reg::R15,
+            X64Reg::Di,
 
-            Self { typ: X64RegType::QWord, idx: X64RegIdx::Si },
-            Self { typ: X64RegType::QWord, idx: X64RegIdx::Dx },
-            Self { typ: X64RegType::QWord, idx: X64RegIdx::Cx },
-            Self { typ: X64RegType::QWord, idx: X64RegIdx::R8 },
-            Self { typ: X64RegType::QWord, idx: X64RegIdx::R9 },
+            X64Reg::Si,
+            X64Reg::Dx,
+            X64Reg::Cx,
+            X64Reg::R8,
+            X64Reg::R9,
         ]
     }
 }
@@ -123,35 +105,28 @@ impl TryFrom<usize> for X64Reg {
     type Error = ();
 
     fn try_from(value: usize) -> Result<Self, Self::Error> {
-        X64RegIdx::from_repr(value).map(|idx| Self { typ: X64RegType::QWord, idx }).ok_or(())
+        X64Reg::from_repr(value).ok_or(())
     }
 }
 
 impl From<X64Reg> for usize {
     fn from(value: X64Reg) -> Self {
-        value.idx as _
-    }
-}
-
-impl From<X64RegIdx> for VReg<X64Reg> {
-    fn from(idx: X64RegIdx) -> Self {
-        VReg::Real(X64Reg { typ: X64RegType::QWord, idx })
+        value as _
     }
 }
 
 #[derive(Clone)]
 pub enum X64Inst {
-    Mov(X64VReg, X64VReg),
-    MovI(i64, X64VReg),
+    Mov(X64BitSize, X64VReg, X64VReg),
+    MovI(X64BitSize, i64, X64VReg),
+    Cmp(X64BitSize, X64VReg, X64VReg),
+    Int2(X64BitSize, X64IntOp, X64VReg, X64VReg),
+    Int2I(X64BitSize, X64IntOp, i64, X64VReg),
+    Push(X64BitSize, X64VReg),
+    Pop(X64BitSize, X64VReg),
     CSet(X64Cond, X64VReg),
-    Cmp(X64VReg, X64VReg),
-    Int2(X64IntOp, X64VReg, X64VReg),
-    Int2I(X64IntOp, i64, X64VReg),
-    Push(X64VReg),
-    Pop(X64VReg),
     Jmp(Location),
-    Jnz(Location),
-    Ret,
+    Jcc(X64Cond, Location), Ret,
     Leave,
 }
 
@@ -168,6 +143,7 @@ pub enum X64Cond {
     Le,
     G,
     Ge,
+    Nz,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, strum::Display)]
@@ -222,36 +198,36 @@ impl Inst for X64Inst {
 
     fn register_regalloc(&self, ra: &mut impl RegAlloc<Self::Register>) {
         match self {
-            Self::Mov(s, d) => {
+            Self::Mov(_, s, d) => {
                 ra.add_use(*s);
                 ra.define(*d);
             },
-            Self::MovI(_, d) => {
+            Self::MovI(_, _, d) => {
                 ra.define(*d);
             },
             Self::CSet(_, d) => {
                 ra.define(*d);
             },
-            Self::Cmp(a, b) => {
+            Self::Cmp(_, a, b) => {
                 ra.add_use(*a);
                 ra.add_use(*b);
             },
-            Self::Int2(_, s, d) => {
+            Self::Int2(_, _, s, d) => {
                 ra.add_use(*s);
                 ra.add_use(*d);
                 ra.define(*d);
             },
-            Self::Int2I(_, _, d) => {
+            Self::Int2I(_, _, _, d) => {
                 ra.add_use(*d);
                 ra.define(*d);
             },
-            Self::Push(r) => {
+            Self::Push(_, r) => {
                 ra.add_use(*r);
             },
-            Self::Pop(r) => {
+            Self::Pop(_, r) => {
                 ra.define(*r);
             },
-            Self::Jmp(_) | Self::Jnz(_) | Self::Ret | Self::Leave => {},
+            Self::Jmp(_) | Self::Jcc(..) | Self::Ret | Self::Leave => {},
         }
     }
 
@@ -261,35 +237,35 @@ impl Inst for X64Inst {
         };
 
         match self {
-            Self::Mov(s, d) => {
+            Self::Mov(_, s, d) => {
                 apply(s);
                 apply(d);
             },
-            Self::MovI(_, d) => {
+            Self::MovI(_, _, d) => {
                 apply(d);
             },
             Self::CSet(_, d) => {
                 apply(d);
             },
-            Self::Cmp(a, b) => {
+            Self::Cmp(_, a, b) => {
                 apply(a);
                 apply(b);
             },
-            Self::Int2(_, s, d) => {
+            Self::Int2(_, _, s, d) => {
                 apply(s);
                 apply(d);
                 apply(d);
             },
-            Self::Int2I(_, _, d) => {
+            Self::Int2I(_, _, _, d) => {
                 apply(d);
             },
-            Self::Push(r) => {
+            Self::Push(_, r) => {
                 apply(r);
             },
-            Self::Pop(r) => {
+            Self::Pop(_, r) => {
                 apply(r);
             },
-            Self::Jmp(_) | Self::Jnz(_) | Self::Ret | Self::Leave => {},
+            Self::Jmp(_) | Self::Jcc(..) | Self::Ret | Self::Leave => {},
         }
     }
 
@@ -313,56 +289,51 @@ impl Inst for X64Inst {
                     };
 
                     match &mut inst[i] {
-                        Self::Mov(s, d) => {
+                        Self::Mov(_, s, d) => {
                             ua(s);
                             ud(d);
                         },
-                        Self::MovI(_, d) => {
+                        Self::MovI(_, _, d) => {
                             ud(d);
                         },
                         Self::CSet(_, d) => {
                             ud(d);
                         },
-                        Self::Cmp(a, b) => {
+                        Self::Cmp(_, a, b) => {
                             ua(a);
                             ub(b);
                         },
-                        Self::Int2(_, s, d) => {
+                        Self::Int2(_, _, s, d) => {
                             ua(s);
                             ud(d);
                         },
-                        Self::Int2I(_, _, d) => {
+                        Self::Int2I(_, _, _, d) => {
                             ud(d);
                         },
-                        Self::Push(r) => {
+                        Self::Push(_, r) => {
                             ud(r);
                         },
-                        Self::Pop(r) => {
+                        Self::Pop(_, r) => {
                             ua(r);
                         },
-                        Self::Jmp(_) | Self::Jnz(_) | Self::Ret | Self::Leave => {},
+                        Self::Jmp(_) | Self::Jcc(..) | Self::Ret | Self::Leave => {},
                     }
 
                     if let Some(d) = d_spilled {
                         frame_size = frame_size.max(d + 1);
-                        // inst.insert(
-                        //     i + 1,
-                        //     Self::Lstr(UrclReg::Sp.into(), d as _, SPILL_0.into()),
-                        // );
                     }
                     if let Some(a) = a_spilled {
                         frame_size = frame_size.max(a + 1);
-                        // inst.insert(
-                        //     i,
-                        //     Self::Llod(SPILL_0.into(), UrclReg::Sp.into(), a as _),
-                        // );
+                        if d_spilled.is_some() || b_spilled.is_some() {
+                            todo!(">1 spilled");
+                            // inst.insert(
+                            //     i,
+                            //     Self::Llod(SPILL_0.into(), UrclReg::Sp.into(), a as _),
+                            // );
+                        }
                     }
                     if let Some(b) = b_spilled {
                         frame_size = frame_size.max(b + 1);
-                        // inst.insert(
-                        //     i,
-                        //     Self::Llod(SPILL_0.into(), UrclReg::Sp.into(), a as _),
-                        // );
                     }
 
                     i += 1;
@@ -375,7 +346,7 @@ impl Inst for X64Inst {
             }
 
             let update = |inst: &mut Vec<Self>| for i in inst.iter_mut() {
-                if let Self::Int2I(_, v, VReg::Real(X64Reg { idx: X64RegIdx::Sp, .. })) = i {
+                if let Self::Int2I(_, _, v, VReg::Real(X64Reg::Sp)) = i {
                     match *v {
                         FRAME_SIZE_MARKER => *v = frame_size as i64 * 8,
                         _ => {},
@@ -395,9 +366,13 @@ impl Inst for X64Inst {
         bi: Option<BlockId>,
     ) -> Option<(Vec<Self>, usize)> {
         match area {
-            [Self::Mov(v, d), ..] if d == v => Some((vec![], 1)),
+            [Self::Mov(_, v, d), ..] if d == v => Some((vec![], 1)),
             [Self::Jmp(Location::Block(t))] if bi.map_or(false, |b| b.0 + 1 == *t) => Some((vec![], 1)),
-            [Self::MovI(0, d), ..] => Some((vec![Self::Int2(X64IntOp::Xor, *d, *d)], 1)),
+            [Self::MovI(t, 0, d), ..] => Some((vec![Self::Int2(*t, X64IntOp::Xor, *d, *d)], 1)),
+            [Self::CSet(c, r1), Self::Int2(X64BitSize::Byte, X64IntOp::Or, r2, r3), Self::Jcc(X64Cond::Nz, d), ..] if r1 == r2 && r2 == r3 => Some((
+                vec![Self::CSet(*c, *r1), Self::Jcc(*c, *d)],
+                3,
+            )),
             _ => None,
         }
     }
@@ -439,41 +414,43 @@ impl InstSelector for X64Selector {
     type Instruction = X64Inst;
 
     fn select_pre_fn(&mut self, gen: &mut VCodeGen<X64Inst>, args: &[ValueType]) {
-        gen.push_inst(X64Inst::Push(X64RegIdx::Bp.into()));
-        gen.push_inst(X64Inst::Mov(X64RegIdx::Sp.into(), X64RegIdx::Bp.into()));
-        gen.push_inst(X64Inst::Int2I(X64IntOp::Sub, FRAME_SIZE_MARKER, X64RegIdx::Sp.into()));
+        gen.push_inst(X64Inst::Push(X64BitSize::Quad, X64Reg::Bp.into()));
+        gen.push_inst(X64Inst::Mov(X64BitSize::Quad, X64Reg::Sp.into(), X64Reg::Bp.into()));
+        gen.push_inst(X64Inst::Int2I(X64BitSize::Quad, X64IntOp::Sub, FRAME_SIZE_MARKER, X64Reg::Sp.into()));
 
         for (ri, r) in CALLEE_SAVE.iter().enumerate() {
-            gen.push_inst(X64Inst::Mov((*r).into(), VReg::Spilled(ri)));
+            gen.push_inst(X64Inst::Mov(X64BitSize::Quad, (*r).into(), VReg::Spilled(ri)));
         }
     }
 
     fn select_inst(&mut self, gen: &mut VCodeGen<X64Inst>, inst: &Instruction) {
         match inst {
             Instruction::Assign(d, v) => {
+                let bits = X64BitSize::from_vt(&d.typ);
                 let d = gen.get_value_vreg(d.id);
-                gen.push_inst(X64Inst::MovI(*v as i64, d));
+                gen.push_inst(X64Inst::MovI(bits, *v as i64, d));
             },
             Instruction::IntOp(op, d, a, b) if X64Cond::try_from(*op).is_ok() => {
+                let bits = X64BitSize::from_bit_size(a.size);
                 let d = gen.get_value_vreg(d.id);
                 let a = gen.get_value_vreg(a.id);
                 let b = gen.get_value_vreg(b.id);
-                gen.push_inst(X64Inst::Cmp(b, a));
-                // TODO: make `d` 8-bits bc gas is confused
-                // -- requires extra attrs in vregs.. kinda screwed up
+                gen.push_inst(X64Inst::Cmp(bits, b, a));
                 gen.push_inst(X64Inst::CSet((*op).try_into().unwrap(), d));
             },
             Instruction::IntOp(op, d, a, b) => {
+                let bits = X64BitSize::from_bit_size(d.size);
                 let d = gen.get_value_vreg(d.id);
                 let a = gen.get_value_vreg(a.id);
                 let b = gen.get_value_vreg(b.id);
-                gen.push_inst(X64Inst::Mov(a, d));
-                gen.push_inst(X64Inst::Int2((*op).try_into().unwrap(), b, d));
+                gen.push_inst(X64Inst::Mov(bits, a, d));
+                gen.push_inst(X64Inst::Int2(bits, (*op).try_into().unwrap(), b, d));
             },
             Instruction::Copy(d, v) => {
+                let bits = X64BitSize::from_vt(&d.typ);
                 let d = gen.get_value_vreg(d.id);
                 let v = gen.get_value_vreg(v.id);
-                gen.push_inst(X64Inst::Mov(v, d));
+                gen.push_inst(X64Inst::Mov(bits, v, d));
             },
             _ => todo!("{inst}"),
         }
@@ -486,24 +463,25 @@ impl InstSelector for X64Selector {
             },
             Terminator::CondBranch(c, a, b) => {
                 let c = gen.get_value_vreg(c.id);
-                gen.push_inst(X64Inst::Int2(X64IntOp::Or, c, c));
-                gen.push_inst(X64Inst::Jnz(a.target.into()));
+                gen.push_inst(X64Inst::Int2(X64BitSize::Byte, X64IntOp::Or, c, c));
+                gen.push_inst(X64Inst::Jcc(X64Cond::Nz, a.target.into()));
                 gen.push_inst(X64Inst::Jmp(b.target.into()));
             },
             Terminator::Return(v) => {
                 if let Some(v) = v {
+                    let bits = X64BitSize::from_vt(&v.typ);
                     let v = gen.get_value_vreg(v.id);
-                    gen.push_inst(X64Inst::Mov(v, X64RegIdx::Ax.into()));
+                    gen.push_inst(X64Inst::Mov(bits, v, X64Reg::Ax.into()));
                 }
 
                 for (ri, r) in CALLEE_SAVE.iter().enumerate() {
-                    gen.push_inst(X64Inst::Mov(VReg::Spilled(ri), (*r).into()));
+                    gen.push_inst(X64Inst::Mov(X64BitSize::Quad, VReg::Spilled(ri), (*r).into()));
                 }
 
                 gen.push_inst(X64Inst::Leave);
                 gen.push_inst(X64Inst::Ret);
             },
-            _ => todo!("{term}"),
+            Terminator::None => {},
         }
     }
 }
@@ -511,16 +489,16 @@ impl InstSelector for X64Selector {
 impl fmt::Display for X64Inst {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Mov(s, d) => write!(f, "mov {}, {}", VRegFmt(s), VRegFmt(d)),
-            Self::MovI(s, d) => write!(f, "mov ${s}, {}", VRegFmt(d)),
-            Self::CSet(c, d) => write!(f, "set{c} {}", VRegFmt(d)),
-            Self::Cmp(a, b) => write!(f, "cmp {}, {}", VRegFmt(a), VRegFmt(b)),
-            Self::Int2(o, s, d) => write!(f, "{o} {}, {}", VRegFmt(s), VRegFmt(d)),
-            Self::Int2I(o, s, d) => write!(f, "{o} ${s}, {}", VRegFmt(d)),
-            Self::Push(r) => write!(f, "push {}", VRegFmt(r)),
-            Self::Pop(r) => write!(f, "pop {}", VRegFmt(r)),
+            Self::Mov(t, s, d) => write!(f, "mov{t} {}, {}", VRegFmt(s, t), VRegFmt(d, t)),
+            Self::MovI(t, s, d) => write!(f, "mov{t} ${s}, {}", VRegFmt(d, t)),
+            Self::CSet(c, d) => write!(f, "set{c} {}", VRegFmt(d, &X64BitSize::Byte)),
+            Self::Cmp(t, a, b) => write!(f, "cmp{t} {}, {}", VRegFmt(a, t), VRegFmt(b, t)),
+            Self::Int2(t, o, s, d) => write!(f, "{o} {}, {}", VRegFmt(s, t), VRegFmt(d, t)),
+            Self::Int2I(t, o, s, d) => write!(f, "{o} ${s}, {}", VRegFmt(d, t)),
+            Self::Push(t, r) => write!(f, "push{t} {}", VRegFmt(r, t)),
+            Self::Pop(t, r) => write!(f, "pop{t} {}", VRegFmt(r, t)),
             Self::Jmp(d) => write!(f, "jmp {}", LocFmt(d)),
-            Self::Jnz(d) => write!(f, "jnz {}", LocFmt(d)),
+            Self::Jcc(c, d) => write!(f, "j{c} {}", LocFmt(d)),
             Self::Ret => write!(f, "ret"),
             Self::Leave => write!(f, "leave"),
         }
@@ -539,12 +517,27 @@ impl fmt::Display for LocFmt<'_> {
 }
 
 
-struct VRegFmt<'a>(&'a X64VReg);
+struct VRegFmt<'a>(&'a X64VReg, &'a X64BitSize);
 
 impl fmt::Display for VRegFmt<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
-            VReg::Real(r) => r.fmt(f),
+            VReg::Real(r) => match (self.1, r) {
+                (X64BitSize::Byte, X64Reg::Ax) => write!(f, "%al"),
+                (X64BitSize::Byte, X64Reg::Bx) => write!(f, "%bl"),
+                (X64BitSize::Byte, X64Reg::Cx) => write!(f, "%cl"),
+                (X64BitSize::Byte, X64Reg::Sp) => write!(f, "%spl"),
+                (X64BitSize::Byte, X64Reg::Bp) => write!(f, "%bph"),
+                (X64BitSize::Byte, X64Reg::Di) => write!(f, "%dil"),
+                (X64BitSize::Byte, X64Reg::Si) => write!(f, "%sil"),
+                (X64BitSize::Byte, X64Reg::Dx) => write!(f, "%dl"),
+                (t, r) if (*r as usize) < 8 => write!(f, "%{}{r}", t.get_message().unwrap_or("")),
+
+                (X64BitSize::Quad, r) => write!(f, "%{r}"),
+                (X64BitSize::Long, r) => write!(f, "%{r}d"),
+                (X64BitSize::Word, r) => write!(f, "%{r}w"),
+                (X64BitSize::Byte, r) => write!(f, "%{r}b"),
+            },
             VReg::Virtual(v) => write!(f, "v{v}"),
             VReg::Spilled(s) => write!(f, "{}(%rbp)", -8 - ((*s as isize) * 8)),
         }
