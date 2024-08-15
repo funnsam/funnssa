@@ -63,5 +63,36 @@ impl<R: Register + 'static + core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
     fn alloc_regs(&mut self, alloc: &mut [VReg<R>], cfg: cfg::Cfg) {
         println!("{:?}", self.first_def);
         println!("{:?}", self.last_uses);
+
+        let mut live_in = vec![HashSet::new(); self.at_block.unwrap().0 + 1];
+        let mut live_out = vec![HashSet::new(); self.at_block.unwrap().0 + 1];
+
+        for (v, uses) in self.last_uses.iter() {
+            for (ub, _ui) in uses.iter() {
+                self.mark(*ub, *v, &cfg, &mut live_in, &mut live_out);
+            }
+        }
+
+        println!("{:?}", live_in);
+        println!("{:?}", live_out);
+    }
+}
+
+impl<R: Register> GraphAlloc<R> {
+    fn mark(&self, block: Option<BlockId>, v: VReg<R>, cfg: &cfg::Cfg, live_in: &mut [HashSet<VReg<R>>], live_out: &mut [HashSet<VReg<R>>]) {
+        let bidx = block.map_or(0, |b| b.0 + 1);
+        if !self.first_def.contains_key(&v) || self.first_def[&v].0 == block { return; }
+        if live_in[bidx].contains(&v) { return; }
+        live_in[bidx].insert(v);
+
+        if let Some(block) = block {
+            for p in cfg.bb_imm_preds(block) {
+                if !live_out[bidx].contains(&v) {
+                    live_out[bidx].insert(v);
+                }
+
+                self.mark(Some(*p), v, cfg, live_in, live_out);
+            }
+        }
     }
 }
