@@ -3,8 +3,8 @@ use crate::{*, regalloc::*};
 
 #[cfg(any(feature = "arch-aarch64", all(feature = "arch-native", target_arch = "aarch64")))]
 pub mod aarch64;
-#[cfg(feature = "arch-urcl")]
-pub mod urcl;
+// #[cfg(feature = "arch-urcl")]
+// pub mod urcl;
 #[cfg(any(feature = "arch-x86_64", all(feature = "arch-native", target_arch = "x86_64")))]
 pub mod x86_64;
 
@@ -55,6 +55,8 @@ pub struct VFunction<'a, I: Inst> {
 
     pre: Vec<I>,
     body: Vec<Vec<I>>,
+
+    original_fn: &'a Function<'a>,
 }
 
 impl<'a, I: Inst> Default for VCodeGen<'a, I> {
@@ -89,23 +91,29 @@ impl<'a, I: Inst> VCodeGen<'a, I> {
     }
 
     pub fn get_value_vreg(&mut self, v: ValueId) -> VReg<I::Register> {
-        if let Some(v) = self.get_function().value_to_vreg.get(&v) {
-            *v
-        } else {
+        self.get_value_vreg_no_add(v).unwrap_or_else(|| {
             let vr = self.vreg_alloc.alloc_virtual();
             self.vcode.funcs[self.at_fn.unwrap()].value_to_vreg.insert(v, vr);
             vr
-        }
+        })
+    }
+
+    pub fn get_value_vreg_no_add(&self, v: ValueId) -> Option<VReg<I::Register>> {
+        self.get_function().value_to_vreg.get(&v).copied()
     }
 
     pub fn get_arg_vreg(&mut self, a: usize) -> VReg<I::Register> {
         self.get_value_vreg(ValueId(a))
     }
+
+    pub fn get_bb_arg_dest(&'a self, id: BlockId) -> &'a [Value] {
+        &self.get_function().original_fn.blocks[id.0].args
+    }
 }
 
 impl<'a, I: Inst> VCode<'a, I> {
     pub fn generate<S: InstSelector<Instruction = I>, A: RegAlloc<I::Register>>(
-        ir: Program<'a>,
+        ir: &'a Program<'a>,
         mut sel: S,
     ) -> Self {
         let mut gen = VCodeGen::new();
@@ -119,6 +127,8 @@ impl<'a, I: Inst> VCode<'a, I> {
 
                 pre: vec![],
                 body: vec![],
+
+                original_fn: f,
             });
 
             if f.linkage == Linkage::External { continue; }
@@ -137,7 +147,7 @@ impl<'a, I: Inst> VCode<'a, I> {
         let mut ra = A::new_sized(gen.vreg_alloc.0);
         let mut alloc = vec![VReg::Virtual(0); gen.vreg_alloc.0];
 
-        for (fi, f) in gen.vcode.funcs.iter_mut().enumerate() {
+        for (fi, f) in gen.vcode.funcs.iter().enumerate() {
             for i in f.pre.iter() {
                 i.register_regalloc(&mut ra);
                 ra.next_inst();
@@ -154,8 +164,12 @@ impl<'a, I: Inst> VCode<'a, I> {
                 ra.next_block();
             }
 
-            ra.alloc_regs(&mut alloc, cfg::Cfg::new(&ir.functions[fi]));
-            /* for i in f.pre.iter_mut() {
+            ra.alloc_regs(&mut alloc, cfg::Cfg::new(&ir.functions[fi]), &gen);
+            ra.next_fn();
+        }
+
+        for f in gen.vcode.funcs.iter_mut() {
+            for i in f.pre.iter_mut() {
                 i.apply_alloc(&alloc);
             }
 
@@ -163,9 +177,7 @@ impl<'a, I: Inst> VCode<'a, I> {
                 for i in b.iter_mut() {
                     i.apply_alloc(&alloc);
                 }
-            } */
-
-            ra.next_fn();
+            }
         }
 
         I::apply_mandatory_transforms(&mut gen.vcode);

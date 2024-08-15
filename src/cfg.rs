@@ -7,7 +7,6 @@ pub struct Cfg<'a> {
 
 impl<'a> Cfg<'a> {
     pub(crate) fn new(func: &'a Function<'a>) -> Self {
-
         Self {
             bbs: &func.blocks,
             ipreds: func.pred(),
@@ -24,5 +23,13 @@ impl<'a> Cfg<'a> {
 
     pub fn bb_imm_preds(&'a self, bb_id: BlockId) -> &'a HashSet<BlockId> {
         &self.ipreds[bb_id.0]
+    }
+
+    pub fn bb_def_args(&'a self, bb_id: BlockId) -> &'a [Value] {
+        &self.bbs[bb_id.0].args
+    }
+
+    pub fn bb_term(&'a self, bb_id: BlockId) -> &'a Terminator {
+        &self.bbs[bb_id.0].term
     }
 }

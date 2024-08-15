@@ -85,18 +85,18 @@ impl Register for X64Reg {
 
     fn get_regs() -> &'static [Self] {
         &[
+            X64Reg::Si,
+            X64Reg::Dx,
+            X64Reg::Cx,
+            X64Reg::R8,
+            X64Reg::R9,
+
             X64Reg::Bx,
             X64Reg::R12,
             X64Reg::R13,
             X64Reg::R14,
             X64Reg::R15,
             X64Reg::Di,
-
-            X64Reg::Si,
-            X64Reg::Dx,
-            X64Reg::Cx,
-            X64Reg::R8,
-            X64Reg::R9,
         ]
     }
 }
@@ -126,8 +126,11 @@ pub enum X64Inst {
     Pop(X64BitSize, X64VReg),
     CSet(X64Cond, X64VReg),
     Jmp(Location),
-    Jcc(X64Cond, Location), Ret,
+    Jcc(X64Cond, Location),
+    Ret,
     Leave,
+
+    BlockArgMov(X64BitSize, X64VReg, X64VReg),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, strum::Display)]
@@ -202,6 +205,9 @@ impl Inst for X64Inst {
                 ra.add_use(*s);
                 ra.define(*d);
             },
+            Self::BlockArgMov(_, s, _) => {
+                ra.add_use(*s);
+            },
             Self::MovI(_, _, d) => {
                 ra.define(*d);
             },
@@ -215,7 +221,6 @@ impl Inst for X64Inst {
             Self::Int2(_, _, s, d) => {
                 ra.add_use(*s);
                 ra.add_use(*d);
-                ra.define(*d);
             },
             Self::Int2I(_, _, _, d) => {
                 ra.add_use(*d);
@@ -237,7 +242,7 @@ impl Inst for X64Inst {
         };
 
         match self {
-            Self::Mov(_, s, d) => {
+            Self::Mov(_, s, d) | Self::BlockArgMov(_, s, d) => {
                 apply(s);
                 apply(d);
             },
@@ -292,6 +297,11 @@ impl Inst for X64Inst {
                         Self::Mov(_, s, d) => {
                             ua(s);
                             ud(d);
+                        },
+                        Self::BlockArgMov(t, s, d) => {
+                            ua(s);
+                            ud(d);
+                            inst[i] = Self::Mov(*t, *s, *d);
                         },
                         Self::MovI(_, _, d) => {
                             ud(d);
@@ -408,7 +418,9 @@ impl Inst for X64Inst {
     }
 }
 
-pub struct X64Selector;
+pub struct X64Selector {
+    callee_save_vregs: [VReg<X64Reg>; CALLEE_SAVE.len()],
+}
 
 impl InstSelector for X64Selector {
     type Instruction = X64Inst;
@@ -418,9 +430,11 @@ impl InstSelector for X64Selector {
         gen.push_inst(X64Inst::Mov(X64BitSize::Quad, X64Reg::Sp.into(), X64Reg::Bp.into()));
         gen.push_inst(X64Inst::Int2I(X64BitSize::Quad, X64IntOp::Sub, FRAME_SIZE_MARKER, X64Reg::Sp.into()));
 
-        // for (ri, r) in CALLEE_SAVE.iter().enumerate() {
-        //     gen.push_inst(X64Inst::Mov(X64BitSize::Quad, (*r).into(), gen.vreg_alloc.alloc_virtual()));
-        // }
+        for (ri, r) in CALLEE_SAVE.iter().enumerate() {
+            let save = gen.vreg_alloc.alloc_virtual();
+            self.callee_save_vregs[ri] = save;
+            gen.push_inst(X64Inst::Mov(X64BitSize::Quad, (*r).into(), save));
+        }
     }
 
     fn select_inst(&mut self, gen: &mut VCodeGen<X64Inst>, inst: &Instruction) {
@@ -459,12 +473,15 @@ impl InstSelector for X64Selector {
     fn select_term(&mut self, gen: &mut VCodeGen<X64Inst>, term: &Terminator) {
         match term {
             Terminator::UncondBranch(t) => {
+                self.select_pre_jump(gen, t);
                 gen.push_inst(X64Inst::Jmp(t.target.into()));
             },
             Terminator::CondBranch(c, a, b) => {
                 let c = gen.get_value_vreg(c.id);
                 gen.push_inst(X64Inst::Int2(X64BitSize::Byte, X64IntOp::Or, c, c));
+                self.select_pre_jump(gen, a);
                 gen.push_inst(X64Inst::Jcc(X64Cond::Nz, a.target.into()));
+                self.select_pre_jump(gen, b);
                 gen.push_inst(X64Inst::Jmp(b.target.into()));
             },
             Terminator::Return(v) => {
@@ -474,9 +491,9 @@ impl InstSelector for X64Selector {
                     gen.push_inst(X64Inst::Mov(bits, v, X64Reg::Ax.into()));
                 }
 
-                // for (ri, r) in CALLEE_SAVE.iter().enumerate() {
-                //     gen.push_inst(X64Inst::Mov(X64BitSize::Quad, VReg::Spilled(ri), (*r).into()));
-                // }
+                for (ri, r) in CALLEE_SAVE.iter().enumerate() {
+                    gen.push_inst(X64Inst::Mov(X64BitSize::Quad, self.callee_save_vregs[ri], (*r).into()));
+                }
 
                 gen.push_inst(X64Inst::Leave);
                 gen.push_inst(X64Inst::Ret);
@@ -486,10 +503,29 @@ impl InstSelector for X64Selector {
     }
 }
 
+impl X64Selector {
+    pub fn new() -> Self {
+        Self {
+            callee_save_vregs: [VReg::Virtual(0); CALLEE_SAVE.len()],
+        }
+    }
+
+    fn select_pre_jump(&mut self, gen: &mut VCodeGen<X64Inst>, t: &TermBlockId) {
+        let bb_arg_dest = gen.get_bb_arg_dest(t.target).to_vec();
+        for (from, to) in t.args.iter().zip(bb_arg_dest.iter()) {
+            let bits = X64BitSize::from_vt(&to.typ);
+            let from = gen.get_value_vreg(*from);
+            let to = gen.get_value_vreg(to.id);
+
+            gen.push_inst(X64Inst::BlockArgMov(bits, from, to))
+        }
+    }
+}
+
 impl fmt::Display for X64Inst {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Mov(t, s, d) => write!(f, "mov{t} {}, {}", VRegFmt(s, t), VRegFmt(d, t)),
+            Self::Mov(t, s, d) | Self::BlockArgMov(t, s, d) => write!(f, "mov{t} {}, {}", VRegFmt(s, t), VRegFmt(d, t)),
             Self::MovI(t, s, d) => write!(f, "mov{t} ${s}, {}", VRegFmt(d, t)),
             Self::CSet(c, d) => write!(f, "set{c} {}", VRegFmt(d, &X64BitSize::Byte)),
             Self::Cmp(t, a, b) => write!(f, "cmp{t} {}, {}", VRegFmt(a, t), VRegFmt(b, t)),

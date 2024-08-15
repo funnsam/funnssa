@@ -39,10 +39,17 @@ impl Function<'_> {
                 }
             }
 
-            match b.term {
-                Terminator::CondBranch(c, ..) => u(c.id),
+            match &b.term {
+                Terminator::CondBranch(c, a, b) => {
+                    u(c.id);
+                    for a in a.args.iter() { u(*a); }
+                    for a in b.args.iter() { u(*a); }
+                },
+                Terminator::UncondBranch(t) => {
+                    for a in t.args.iter() { u(*a); }
+                }
                 Terminator::Return(Some(v)) => u(v.id),
-                Terminator::UncondBranch(..) | Terminator::Return(None) | Terminator::None => {},
+                Terminator::Return(None) | Terminator::None => {},
             }
         }
 

@@ -48,7 +48,9 @@ impl<R: Register + 'static + core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
     }
 
     fn define(&mut self, vr: VReg<R>) {
-        self.first_def.insert(vr, (self.at_block, self.at_inst));
+        self.first_def.entry(vr)
+            .and_modify(|_| panic!("redef {vr}"))
+            .or_insert((self.at_block, self.at_inst));
     }
 
     fn add_use(&mut self, vr: VReg<R>) {
@@ -60,7 +62,7 @@ impl<R: Register + 'static + core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
     fn coalesce_move(&mut self, from: VReg<R>, to: VReg<R>) {
     }
 
-    fn alloc_regs(&mut self, alloc: &mut [VReg<R>], cfg: cfg::Cfg) {
+    fn alloc_regs<I: Inst<Register = R>>(&mut self, alloc: &mut [VReg<R>], cfg: cfg::Cfg, gen: &VCodeGen<I>) {
         println!("{:?}", self.first_def);
         println!("{:?}", self.last_uses);
 
@@ -69,29 +71,89 @@ impl<R: Register + 'static + core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
 
         for (v, uses) in self.last_uses.iter() {
             for (ub, _ui) in uses.iter() {
-                self.mark(*ub, *v, &cfg, &mut live_in, &mut live_out);
+                if ub.is_some() && cfg.bb_term(ub.unwrap()).immediate_successor().into_iter().any(|e| {
+                    e.args.iter().any(|e| gen.get_value_vreg_no_add(*e) == Some(*v))
+                }) {
+                    let bidx = ub.map_or(0, |b| b.0 + 1);
+                    live_out[bidx].insert(*v);
+                }
+
+                self.mark(*ub, *v, &cfg, gen, &mut live_in, &mut live_out);
             }
         }
 
-        println!("{:?}", live_in);
-        println!("{:?}", live_out);
+        println!("i {live_in:?}");
+        println!("o {live_out:?}");
+
+        let mut intg: HashMap<VReg<R>, HashSet<VReg<R>>> = HashMap::new();
+        for live in live_in.iter().chain(live_out.iter()) {
+            for i in live.iter() {
+                for j in live.iter() {
+                    if i != j {
+                        intg.entry(*i).or_default().insert(*j);
+                    }
+                }
+            }
+        }
+
+        for (i, (db, di)) in self.first_def.iter() {
+            intg.entry(*i).or_default();
+
+            for (j, uses) in self.last_uses.iter() {
+                intg.entry(*j).or_default();
+
+                for (ub, ui) in uses.iter() {
+                    // continue if use bef defs too
+                    if db != ub || di >= ui { continue; }
+
+                    if i != j {
+                        intg.get_mut(i).unwrap().insert(*j);
+                        intg.get_mut(j).unwrap().insert(*i);
+                    }
+                }
+            }
+        }
+        println!("{intg:?}");
+
+        let mut color = HashMap::new();
+        for (node, edges) in intg.iter() {
+            color.insert(*node, (0..).find(|c| {
+                edges.iter().find(|e| color.get(e).map_or(false, |e| e == c)).is_none()
+            }).unwrap());
+        }
+        println!("{color:?}");
+
+        for (v, c) in color.iter() {
+            match v {
+                VReg::Virtual(v) => alloc[*v] = R::get_regs().get(*c).cloned().map_or_else(|| VReg::Spilled(*c - R::get_regs().len()), VReg::Real),
+                _ => {},
+            }
+        }
     }
 }
 
 impl<R: Register> GraphAlloc<R> {
-    fn mark(&self, block: Option<BlockId>, v: VReg<R>, cfg: &cfg::Cfg, live_in: &mut [HashSet<VReg<R>>], live_out: &mut [HashSet<VReg<R>>]) {
+    fn mark<I: Inst<Register = R>>(
+        &self,
+        block: Option<BlockId>,
+        v: VReg<R>,
+        cfg: &cfg::Cfg,
+        gen: &VCodeGen<I>,
+        live_in: &mut [HashSet<VReg<R>>],
+        live_out: &mut [HashSet<VReg<R>>],
+    ) {
         let bidx = block.map_or(0, |b| b.0 + 1);
-        if !self.first_def.contains_key(&v) || self.first_def[&v].0 == block { return; }
+        if self.first_def.contains_key(&v) && self.first_def[&v].0 == block { return; }
         if live_in[bidx].contains(&v) { return; }
         live_in[bidx].insert(v);
 
+        if block.is_some() && cfg.bb_def_args(block.unwrap()).iter().any(|e| gen.get_value_vreg_no_add(e.id) == Some(v)) { return; }
+
         if let Some(block) = block {
             for p in cfg.bb_imm_preds(block) {
-                if !live_out[bidx].contains(&v) {
-                    live_out[bidx].insert(v);
-                }
+                live_out[p.0 + 1].insert(v);
 
-                self.mark(Some(*p), v, cfg, live_in, live_out);
+                self.mark(Some(*p), v, cfg, gen, live_in, live_out);
             }
         }
     }
