@@ -5,14 +5,14 @@ type InnerLoc = (Option<BlockId>, usize);
 
 pub struct GraphAlloc<R: Register> {
     first_def: HashMap<VReg<R>, InnerLoc>,
-    last_uses: HashMap<VReg<R>, Vec<InnerLoc>>,
+    last_uses: HashMap<VReg<R>, (Vec<InnerLoc>, usize)>,
     coalesce_to: HashMap<VReg<R>, Vec<VReg<R>>>,
 
     at_block: Option<BlockId>,
     at_inst: usize,
 }
 
-impl<R: Register + 'static> RegAlloc<R> for GraphAlloc<R> {
+impl<R: Register + 'static + core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
     fn new_sized(_size: usize) -> Self {
         Self {
             first_def: HashMap::new(),
@@ -57,20 +57,26 @@ impl<R: Register + 'static> RegAlloc<R> for GraphAlloc<R> {
     }
 
     fn add_use(&mut self, vr: VReg<R>) {
-        self.last_uses.entry(vr)
-            .or_default()
-            .push((self.at_block, self.at_inst));
+        let u = self.last_uses.entry(vr).or_default();
+
+        u.1 += 1;
+        if u.0.last().map_or(false, |(b, _)| b == &self.at_block) {
+            u.0.last_mut().unwrap().1 = self.at_inst
+        } else {
+            u.0.push((self.at_block, self.at_inst));
+        }
     }
 
     fn coalesce_move(&mut self, from: VReg<R>, to: VReg<R>) {
         self.coalesce_to.entry(from).or_default().push(to);
+        self.coalesce_to.entry(to).or_default().push(from);
     }
 
     fn alloc_regs<I: Inst<Register = R>>(&mut self, alloc: &mut [VReg<R>], cfg: cfg::Cfg, gen: &VCodeGen<I>) {
         let mut live_in = vec![Vec::new(); self.at_block.unwrap().0 + 1];
         let mut live_out = vec![Vec::new(); self.at_block.unwrap().0 + 1];
 
-        for (v, uses) in self.last_uses.iter() {
+        for (v, (uses, _)) in self.last_uses.iter() {
             for (ub, _ui) in uses.iter() {
                 if ub.is_some() && cfg.bb_term(ub.unwrap()).immediate_successor().into_iter().any(|e| {
                     e.args.iter().any(|e| gen.get_value_vreg_no_add(*e) == Some(*v))
@@ -97,62 +103,99 @@ impl<R: Register + 'static> RegAlloc<R> for GraphAlloc<R> {
         for (i, (db, di)) in self.first_def.iter() {
             intg.entry(*i).or_default();
 
-            for (j, uses) in self.last_uses.iter() {
-                intg.entry(*j).or_default();
+            if let Some((du, _)) = self.last_uses.get(i) {
+                if du.len() > 1 || (!du.is_empty() && &du[0].0 != db) { continue; }
+                let dr = *di..du.get(0).map_or(usize::MAX, |u| u.1);
 
-                for (ub, ui) in uses.iter() {
-                    // continue if use bef defs too
-                    if db != ub || di >= ui { continue; }
+                for (j, (uses, _)) in self.last_uses.iter() {
+                    intg.entry(*j).or_default();
 
-                    if i != j {
-                        intg.get_mut(i).unwrap().insert(*j);
-                        intg.get_mut(j).unwrap().insert(*i);
+                    if i == j || uses.len() > 1 || (!uses.is_empty() && &uses[0].0 != db) { continue; }
+                    if let Some(ud) = self.first_def.get(j) {
+                        let ur = ud.1..uses.get(0).map_or(ud.1, |u| u.1);
+
+                        if dr.start < ur.end && ur.start < dr.end {
+                            intg.get_mut(i).unwrap().insert(*j);
+                            intg.get_mut(j).unwrap().insert(*i);
+                        }
                     }
                 }
             }
         }
 
-        for (i, uses) in self.last_uses.iter() {
-            for (ub, _) in uses.iter() {
-                if let Some(BlockId(ub)) = ub {
-                    for j in live_in[*ub].iter() {
-                        if !live_out[*ub].contains(&j) { continue; }
-
-                        intg.get_mut(i).unwrap().insert(*j);
-                        intg.get_mut(j).unwrap().insert(*i);
-                    }
+        for (i, (db, _)) in self.first_def.iter() {
+            for j in live_out[db.map_or(0, |b| b.0 + 1)].iter() {
+                if i != j {
+                    intg.get_mut(i).unwrap().insert(*j);
+                    intg.get_mut(j).unwrap().insert(*i);
                 }
             }
         }
+
+        print!("graph h{{"); for (v, i) in intg.iter() { print!("{v};"); for i in i.iter() { print!("{v}--{i};"); } }println!("}}");
 
         for (cf, cts) in self.coalesce_to.iter_mut() {
             cts.retain(|t| intg.get(cf).map_or(true, |i| !i.contains(t)));
         }
+        self.coalesce_to.retain(|_, c| !c.is_empty());
 
-        let mut color = HashMap::new();
+        let mut color = HashMap::with_capacity(intg.len());
+        let mut tryc = HashMap::new();
         let mut order = Vec::with_capacity(intg.len());
+
         for (node, edges) in intg.iter() {
             match node {
                 VReg::VirtReal(v, r) => {
                     alloc[*v] = VReg::Real(*r);
-                    if let Some((i, _)) = R::get_regs().iter().enumerate().find(|(_, r2)| r == *r2) {
-                        color.insert(*node, i);
+                    if let Some((c, _)) = R::get_regs().iter().enumerate().find(|(_, r2)| r == *r2) {
+                        color.insert(*node, c);
+
+                        if let Some(cts) = self.coalesce_to.get(node) {
+                            for ct in cts.iter() {
+                                tryc.insert(*ct, c);
+                            }
+                        }
                     }
                 },
                 _ => {
-                    order.push((node, edges.len(), self.last_uses.get(node).map_or(0, |u| u.len())));
+                    order.push((node, edges.len(), self.last_uses.get(node).map_or(0, |u| u.1)));
                 },
             }
         }
 
-        order.sort_unstable_by(|(_, ae, au), (_, be, bu)| be.cmp(ae).then_with(|| bu.cmp(au)));
+        order.sort_unstable_by(|(a, ae, au), (b, be, bu)| {
+            let am = self.coalesce_to.contains_key(a) as usize + 2;
+            let bm = self.coalesce_to.contains_key(b) as usize + 2;
+
+            (bu * bm).cmp(&(au * am)).then_with(|| (be * bm).cmp(&(ae * bm)))
+        });
+        println!("{order:?}");
 
         for (node, ..) in order.into_iter() {
-            let edges = &intg[node];
+            if color.contains_key(node) { continue; }
 
-            color.insert(*node, (0..).find(|c| {
-                edges.iter().find(|e| color.get(e).map_or(false, |e| e == c)).is_none()
-            }).unwrap());
+            let color_ok = |edges: &HashSet<VReg<R>>, color: &HashMap<VReg<R>, usize>, c: usize| {
+                edges.iter().find(|e| color.get(e).map_or(false, |e| *e == c)).is_none()
+            };
+
+            if let Some(tc) = tryc.get(node) {
+                if color_ok(&intg[node], &color, *tc) {
+                    color.insert(*node, *tc);
+                    tryc.remove_entry(node);
+                    continue;
+                }
+            }
+
+            let c = (0..).find(|c| color_ok(&intg[node], &color, *c)).unwrap();
+            color.insert(*node, c);
+
+            if let Some(cts) = self.coalesce_to.get(node) {
+                for ct in cts.iter() {
+                    if !color.contains_key(ct) {
+                        color.insert(*ct, c);
+                    }
+                }
+            }
         }
 
         for (v, c) in color.iter() {

@@ -97,6 +97,8 @@ impl Register for X64Reg {
             X64Reg::R14,
             X64Reg::R15,
             X64Reg::Di,
+
+            X64Reg::Ax,
         ]
     }
 }
@@ -388,6 +390,7 @@ impl Inst for X64Inst {
                 vec![Self::CSet(*c, *r1), Self::Jcc(*c, *d)],
                 3,
             )),
+            [Self::Int2I(_, X64IntOp::Sub, 0, VReg::Real(X64Reg::Sp))] => Some((vec![], 1)),
             _ => None,
         }
     }
@@ -494,7 +497,8 @@ impl InstSelector for X64Selector {
                 if let Some(v) = v {
                     let bits = X64BitSize::from_vt(&v.typ);
                     let v = gen.get_value_vreg(v.id);
-                    gen.push_inst(X64Inst::Mov(bits, v, X64Reg::Ax.into()));
+                    let ax = gen.vreg_alloc.alloc_virtual().force_in_reg(X64Reg::Ax);
+                    gen.push_inst(X64Inst::Mov(bits, v, ax));
                 }
 
                 for (ri, r) in CALLEE_SAVE.iter().enumerate() {

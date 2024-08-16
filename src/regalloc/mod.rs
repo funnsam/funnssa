@@ -59,7 +59,7 @@ impl<R: Register> fmt::Display for VReg<R> {
             Self::Spilled(v) => write!(f, "s{v}"),
 
             Self::Virtual(v) => write!(f, "v{v}"),
-            Self::VirtReal(v, r) => write!(f, "v{v}({r})"),
+            Self::VirtReal(v, r) => write!(f, "v{v}_{r}"),
         }
     }
 }
