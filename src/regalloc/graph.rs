@@ -1,17 +1,17 @@
 use super::*;
 use std::collections::HashMap;
 
-type InnerRange = core::ops::Range<usize>;
+type InnerLoc = (Option<BlockId>, usize);
 
 pub struct GraphAlloc<R: Register> {
-    first_def: HashMap<VReg<R>, (Option<BlockId>, usize)>,
-    last_uses: HashMap<VReg<R>, Vec<(Option<BlockId>, usize)>>,
+    first_def: HashMap<VReg<R>, InnerLoc>,
+    last_uses: HashMap<VReg<R>, Vec<InnerLoc>>,
 
     at_block: Option<BlockId>,
     at_inst: usize,
 }
 
-impl<R: Register + 'static + core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
+impl<R: Register + 'static> RegAlloc<R> for GraphAlloc<R> {
     fn new_sized(_size: usize) -> Self {
         Self {
             first_def: HashMap::new(),
@@ -49,7 +49,7 @@ impl<R: Register + 'static + core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
 
     fn define(&mut self, vr: VReg<R>) {
         self.first_def.entry(vr)
-            .and_modify(|_| panic!("redef {vr}"))
+            .and_modify(|_| panic!("redef vreg"))
             .or_insert((self.at_block, self.at_inst));
     }
 
@@ -63,9 +63,6 @@ impl<R: Register + 'static + core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
     }
 
     fn alloc_regs<I: Inst<Register = R>>(&mut self, alloc: &mut [VReg<R>], cfg: cfg::Cfg, gen: &VCodeGen<I>) {
-        println!("{:?}", self.first_def);
-        println!("{:?}", self.last_uses);
-
         let mut live_in = vec![Vec::new(); self.at_block.unwrap().0 + 1];
         let mut live_out = vec![Vec::new(); self.at_block.unwrap().0 + 1];
 
@@ -81,9 +78,6 @@ impl<R: Register + 'static + core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
                 self.mark(*ub, *v, &cfg, gen, &mut live_in, &mut live_out);
             }
         }
-
-        println!("i {live_in:?}");
-        println!("o {live_out:?}");
 
         let mut intg: HashMap<VReg<R>, HashSet<VReg<R>>> = HashMap::new();
         for live in live_in.iter().chain(live_out.iter()) {
@@ -113,10 +107,23 @@ impl<R: Register + 'static + core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
                 }
             }
         }
-        println!("{intg:?}");
+
+        for (i, uses) in self.last_uses.iter() {
+            for (ub, _) in uses.iter() {
+                if let Some(BlockId(ub)) = ub {
+                    for j in live_in[*ub].iter() {
+                        if !live_out[*ub].contains(&j) { continue; }
+
+                        intg.get_mut(i).unwrap().insert(*j);
+                        intg.get_mut(j).unwrap().insert(*i);
+                    }
+                }
+            }
+        }
 
         let mut color = HashMap::new();
-        for (node, _) in intg.iter() {
+        let mut order = Vec::with_capacity(intg.len());
+        for (node, edges) in intg.iter() {
             match node {
                 VReg::VirtReal(v, r) => {
                     alloc[*v] = VReg::Real(*r);
@@ -124,18 +131,21 @@ impl<R: Register + 'static + core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
                         color.insert(*node, i);
                     }
                 },
-                _ => {},
+                _ => {
+                    order.push((node, edges.len(), self.last_uses.get(node).map_or(0, |u| u.len())));
+                },
             }
         }
 
-        for (node, edges) in intg.iter() {
-            if matches!(node, VReg::VirtReal(..)) { continue; }
+        order.sort_unstable_by(|(_, ae, au), (_, be, bu)| be.cmp(ae).then_with(|| bu.cmp(au)));
+
+        for (node, ..) in order.into_iter() {
+            let edges = &intg[node];
 
             color.insert(*node, (0..).find(|c| {
                 edges.iter().find(|e| color.get(e).map_or(false, |e| e == c)).is_none()
             }).unwrap());
         }
-        println!("{color:?}");
 
         for (v, c) in color.iter() {
             match v {

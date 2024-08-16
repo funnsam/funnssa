@@ -204,9 +204,11 @@ impl Inst for X64Inst {
             Self::Mov(_, s, d) => {
                 ra.add_use(*s);
                 ra.define(*d);
+                ra.coalesce_move(*s, *d);
             },
-            Self::BlockArgMov(_, s, _) => {
+            Self::BlockArgMov(_, s, d) => {
                 ra.add_use(*s);
+                ra.coalesce_move(*s, *d);
             },
             Self::MovI(_, _, d) => {
                 ra.define(*d);
