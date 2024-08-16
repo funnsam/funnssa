@@ -28,9 +28,22 @@ pub trait RegAlloc<R: Register> where Self: Sized {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum VReg<R: Register> {
-    Virtual(usize),
     Real(R),
     Spilled(usize),
+
+    Virtual(usize),
+    VirtReal(usize, R),
+}
+
+impl<R: Register> VReg<R> {
+    pub fn force_in_reg(self, r: R) -> Self {
+        match self {
+            Self::Real(_) => Self::Real(r),
+            Self::Spilled(_) => panic!("{self} can't be in a register"),
+
+            Self::Virtual(v) | Self::VirtReal(v, _) => Self::VirtReal(v, r),
+        }
+    }
 }
 
 impl<R: Register> From<R> for VReg<R> {
@@ -42,9 +55,11 @@ impl<R: Register> From<R> for VReg<R> {
 impl<R: Register> fmt::Display for VReg<R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Virtual(v) => write!(f, "v{v}"),
             Self::Real(r) => r.fmt(f),
             Self::Spilled(v) => write!(f, "s{v}"),
+
+            Self::Virtual(v) => write!(f, "v{v}"),
+            Self::VirtReal(v, r) => write!(f, "v{v}({r})"),
         }
     }
 }

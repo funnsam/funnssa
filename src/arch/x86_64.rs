@@ -237,8 +237,11 @@ impl Inst for X64Inst {
     }
 
     fn apply_alloc(&mut self, ra: &[VReg<Self::Register>]) {
-        let apply = |r: &mut X64VReg| if let VReg::Virtual(v) = r {
-            *r = ra[*v];
+        let apply = |r: &mut X64VReg| match r {
+            VReg::Virtual(v) | VReg::VirtReal(v, _) => {
+                *r = ra[*v];
+            },
+            _ => {},
         };
 
         match self {
@@ -431,9 +434,10 @@ impl InstSelector for X64Selector {
         gen.push_inst(X64Inst::Int2I(X64BitSize::Quad, X64IntOp::Sub, FRAME_SIZE_MARKER, X64Reg::Sp.into()));
 
         for (ri, r) in CALLEE_SAVE.iter().enumerate() {
+            let r = gen.vreg_alloc.alloc_virtual().force_in_reg(*r);
             let save = gen.vreg_alloc.alloc_virtual();
             self.callee_save_vregs[ri] = save;
-            gen.push_inst(X64Inst::Mov(X64BitSize::Quad, (*r).into(), save));
+            gen.push_inst(X64Inst::Mov(X64BitSize::Quad, r, save));
         }
     }
 
@@ -492,7 +496,8 @@ impl InstSelector for X64Selector {
                 }
 
                 for (ri, r) in CALLEE_SAVE.iter().enumerate() {
-                    gen.push_inst(X64Inst::Mov(X64BitSize::Quad, self.callee_save_vregs[ri], (*r).into()));
+                    let r = gen.vreg_alloc.alloc_virtual().force_in_reg(*r);
+                    gen.push_inst(X64Inst::Mov(X64BitSize::Quad, self.callee_save_vregs[ri], r));
                 }
 
                 gen.push_inst(X64Inst::Leave);
@@ -574,7 +579,7 @@ impl fmt::Display for VRegFmt<'_> {
                 (X64BitSize::Word, r) => write!(f, "%{r}w"),
                 (X64BitSize::Byte, r) => write!(f, "%{r}b"),
             },
-            VReg::Virtual(v) => write!(f, "v{v}"),
+            VReg::Virtual(v) | VReg::VirtReal(v, _) => write!(f, "v{v}"),
             VReg::Spilled(s) => write!(f, "{}(%rbp)", -8 - ((*s as isize) * 8)),
         }
     }

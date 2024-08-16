@@ -5,7 +5,7 @@ type InnerRange = core::ops::Range<usize>;
 
 pub struct GraphAlloc<R: Register> {
     first_def: HashMap<VReg<R>, (Option<BlockId>, usize)>,
-    last_uses: HashMap<VReg<R>, HashMap<Option<BlockId>, usize>>,
+    last_uses: HashMap<VReg<R>, Vec<(Option<BlockId>, usize)>>,
 
     at_block: Option<BlockId>,
     at_inst: usize,
@@ -56,7 +56,7 @@ impl<R: Register + 'static + core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
     fn add_use(&mut self, vr: VReg<R>) {
         self.last_uses.entry(vr)
             .or_default()
-            .insert(self.at_block, self.at_inst);
+            .push((self.at_block, self.at_inst));
     }
 
     fn coalesce_move(&mut self, from: VReg<R>, to: VReg<R>) {
@@ -66,8 +66,8 @@ impl<R: Register + 'static + core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
         println!("{:?}", self.first_def);
         println!("{:?}", self.last_uses);
 
-        let mut live_in = vec![HashSet::new(); self.at_block.unwrap().0 + 1];
-        let mut live_out = vec![HashSet::new(); self.at_block.unwrap().0 + 1];
+        let mut live_in = vec![Vec::new(); self.at_block.unwrap().0 + 1];
+        let mut live_out = vec![Vec::new(); self.at_block.unwrap().0 + 1];
 
         for (v, uses) in self.last_uses.iter() {
             for (ub, _ui) in uses.iter() {
@@ -75,7 +75,7 @@ impl<R: Register + 'static + core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
                     e.args.iter().any(|e| gen.get_value_vreg_no_add(*e) == Some(*v))
                 }) {
                     let bidx = ub.map_or(0, |b| b.0 + 1);
-                    live_out[bidx].insert(*v);
+                    live_out[bidx].push(*v);
                 }
 
                 self.mark(*ub, *v, &cfg, gen, &mut live_in, &mut live_out);
@@ -116,7 +116,21 @@ impl<R: Register + 'static + core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
         println!("{intg:?}");
 
         let mut color = HashMap::new();
+        for (node, _) in intg.iter() {
+            match node {
+                VReg::VirtReal(v, r) => {
+                    alloc[*v] = VReg::Real(*r);
+                    if let Some((i, _)) = R::get_regs().iter().enumerate().find(|(_, r2)| r == *r2) {
+                        color.insert(*node, i);
+                    }
+                },
+                _ => {},
+            }
+        }
+
         for (node, edges) in intg.iter() {
+            if matches!(node, VReg::VirtReal(..)) { continue; }
+
             color.insert(*node, (0..).find(|c| {
                 edges.iter().find(|e| color.get(e).map_or(false, |e| e == c)).is_none()
             }).unwrap());
@@ -139,19 +153,19 @@ impl<R: Register> GraphAlloc<R> {
         v: VReg<R>,
         cfg: &cfg::Cfg,
         gen: &VCodeGen<I>,
-        live_in: &mut [HashSet<VReg<R>>],
-        live_out: &mut [HashSet<VReg<R>>],
+        live_in: &mut [Vec<VReg<R>>],
+        live_out: &mut [Vec<VReg<R>>],
     ) {
         let bidx = block.map_or(0, |b| b.0 + 1);
         if self.first_def.contains_key(&v) && self.first_def[&v].0 == block { return; }
-        if live_in[bidx].contains(&v) { return; }
-        live_in[bidx].insert(v);
+        if live_in[bidx].last() == Some(&v) { return; }
+        live_in[bidx].push(v);
 
         if block.is_some() && cfg.bb_def_args(block.unwrap()).iter().any(|e| gen.get_value_vreg_no_add(e.id) == Some(v)) { return; }
 
         if let Some(block) = block {
             for p in cfg.bb_imm_preds(block) {
-                live_out[p.0 + 1].insert(v);
+                live_out[p.0 + 1].push(v);
 
                 self.mark(Some(*p), v, cfg, gen, live_in, live_out);
             }

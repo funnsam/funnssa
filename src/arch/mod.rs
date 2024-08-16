@@ -8,7 +8,7 @@ pub mod aarch64;
 #[cfg(any(feature = "arch-x86_64", all(feature = "arch-native", target_arch = "x86_64")))]
 pub mod x86_64;
 
-const PEEPHOLE_OPT_ITERS: usize = 0; //2048;
+const PEEPHOLE_OPT_ITERS: usize = 2048;
 
 pub trait InstSelector: Sized {
     type Instruction: Inst;
