@@ -6,6 +6,7 @@ type InnerLoc = (Option<BlockId>, usize);
 pub struct GraphAlloc<R: Register> {
     first_def: HashMap<VReg<R>, InnerLoc>,
     last_uses: HashMap<VReg<R>, Vec<InnerLoc>>,
+    coalesce_to: HashMap<VReg<R>, Vec<VReg<R>>>,
 
     at_block: Option<BlockId>,
     at_inst: usize,
@@ -16,6 +17,7 @@ impl<R: Register + 'static> RegAlloc<R> for GraphAlloc<R> {
         Self {
             first_def: HashMap::new(),
             last_uses: HashMap::new(),
+            coalesce_to: HashMap::new(),
 
             at_block: None,
             at_inst: 0,
@@ -37,6 +39,7 @@ impl<R: Register + 'static> RegAlloc<R> for GraphAlloc<R> {
     fn next_fn(&mut self) {
         self.first_def.clear();
         self.last_uses.clear();
+        self.coalesce_to.clear();
 
         self.at_block = None;
         self.at_inst = 0;
@@ -60,6 +63,7 @@ impl<R: Register + 'static> RegAlloc<R> for GraphAlloc<R> {
     }
 
     fn coalesce_move(&mut self, from: VReg<R>, to: VReg<R>) {
+        self.coalesce_to.entry(from).or_default().push(to);
     }
 
     fn alloc_regs<I: Inst<Register = R>>(&mut self, alloc: &mut [VReg<R>], cfg: cfg::Cfg, gen: &VCodeGen<I>) {
@@ -119,6 +123,10 @@ impl<R: Register + 'static> RegAlloc<R> for GraphAlloc<R> {
                     }
                 }
             }
+        }
+
+        for (cf, cts) in self.coalesce_to.iter_mut() {
+            cts.retain(|t| intg.get(cf).map_or(true, |i| !i.contains(t)));
         }
 
         let mut color = HashMap::new();
