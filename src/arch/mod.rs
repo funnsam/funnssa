@@ -111,7 +111,7 @@ impl<'a, I: Inst> VCodeGen<'a, I> {
     }
 }
 
-impl<'a, I: Inst> VCode<'a, I> {
+impl<'a, I: Inst + core::fmt::Display> VCode<'a, I> {
     pub fn generate<S: InstSelector<Instruction = I>, A: RegAlloc<I::Register>>(
         ir: &'a Program<'a>,
         mut sel: S,
@@ -167,6 +167,8 @@ impl<'a, I: Inst> VCode<'a, I> {
             ra.alloc_regs(&mut alloc, cfg::Cfg::new(&ir.functions[fi]), &gen);
             ra.next_fn();
         }
+
+        println!("{}", gen.vcode);
 
         for f in gen.vcode.funcs.iter_mut() {
             for i in f.pre.iter_mut() {

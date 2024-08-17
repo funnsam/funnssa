@@ -204,6 +204,25 @@ impl Terminator {
             Self::Return(_) | Self::None => {},
         }
     }
+
+    fn replace_arg(&mut self, pat: ValueId, to: ValueId) {
+        core::hint::black_box(()); // HACK: what why does this need to be here to make it work
+
+        let update = |tb: &mut TermBlockId| for a in tb.args.iter_mut() {
+            if *a == pat {
+                *a = to;
+            }
+        };
+
+        match self {
+            Self::CondBranch(_, a, b) => {
+                update(a);
+                update(b);
+            },
+            Self::UncondBranch(t) => update(t),
+            Self::Return(_) | Self::None => {},
+        }
+    }
 }
 
 impl Program<'_> {

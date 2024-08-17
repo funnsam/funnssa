@@ -1,5 +1,3 @@
-.set F0, main
-.set F1, print
 .global main
 main:
 pushq %rbp
@@ -11,10 +9,9 @@ movl $1000, %ecx
 movl %edi, %edx
 movl %esi, %eax
 .L1:
-movl %eax, %edi
-add %edx, %edi
-movl %edi, %esi
 movl %eax, %r8d
+movl %eax, %esi
+add %edx, %esi
 cmpl %ecx, %eax
 setb %dil
 jb .L3

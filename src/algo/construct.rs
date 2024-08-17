@@ -2,8 +2,8 @@ use crate::*;
 
 type BlockIdSet = Vec<HashSet<BlockId>>;
 
-fn dominates_inst(bb2: BlockId, inst2: usize, bb1: BlockId, inst1: usize, dom: &BlockIdSet) -> bool {
-    dom[bb1.0].contains(&bb2) || (bb1 == bb2 && inst1 <= inst2)
+fn dominates_inst(bb1: BlockId, inst1: usize, bb2: BlockId, inst2: usize, dom: &BlockIdSet) -> bool {
+    dom[bb1.0].contains(&bb2)
 }
 
 fn immediate_dominators(dom: &BlockIdSet) -> Vec<Option<BlockId>> {
@@ -60,6 +60,7 @@ impl Function<'_> {
 
         self.phi_lower(&mut vdefs, &adefs, &dft, &dom, &idom, &pred);
         self.delete_alloc(&adefs);
+        println!("{}", self);
         self.copy_elision(&dom);
     }
 
@@ -75,11 +76,19 @@ impl Function<'_> {
         }
 
         for (bi, b) in self.blocks.iter_mut().enumerate() {
+            println!("{bi}");
             for (ii, i) in b.insts.iter_mut().enumerate() {
                 for (repl, (with, dbi, dii)) in value.iter() {
                     if dominates_inst(BlockId(bi), ii, *dbi, *dii, dom) {
                         i.replace_rhs(*repl, *with);
                     }
+                }
+            }
+
+            for (repl, (with, dbi, _)) in value.iter() {
+                if dom[bi].contains(dbi) {
+                    println!("{repl} {with}");
+                    b.term.replace_arg(*repl, *with);
                 }
             }
         }
@@ -129,7 +138,7 @@ impl Function<'_> {
                 let mut r = rdef[v.0];
                 while let Some(cr) = r {
                     let def_r = vdefs[cr.0];
-                    if dominates_inst(def_r.0, def_r.1, node, ii, dom) { break; }
+                    if dominates_inst(node, ii, def_r.0, def_r.1, dom) { break; }
 
                     r = rdef[cr.0];
                 }

@@ -522,13 +522,17 @@ impl X64Selector {
     }
 
     fn select_pre_jump(&mut self, gen: &mut VCodeGen<X64Inst>, t: &TermBlockId) {
-        let bb_arg_dest = gen.get_bb_arg_dest(t.target).to_vec();
-        for (from, to) in t.args.iter().zip(bb_arg_dest.iter()) {
-            let bits = X64BitSize::from_vt(&to.typ);
-            let from = gen.get_value_vreg(*from);
-            let to = gen.get_value_vreg(to.id);
+        let mut pc = t.args.iter().zip(gen.get_bb_arg_dest(t.target).to_vec().iter()).map(|(f, t)| {
+            let fv = gen.get_value_vreg(*f);
+            let tv = gen.get_value_vreg(t.id);
+            ((tv, t.typ.clone()), (fv, t.typ))
+        }).collect();
+        let seq = crate::algo::par_move::parallel_move(&mut pc, &mut |a, _| (gen.vreg_alloc.alloc_virtual(), a.1));
+        println!("{seq:?}");
 
-            gen.push_inst(X64Inst::BlockArgMov(bits, from, to))
+        for ((to, typ), (from, _)) in seq {
+            let bits = X64BitSize::from_vt(&typ);
+            gen.push_inst(X64Inst::BlockArgMov(bits, from, to));
         }
     }
 }
