@@ -3,8 +3,8 @@ use crate::{*, regalloc::*};
 
 #[cfg(any(feature = "arch-aarch64", all(feature = "arch-native", target_arch = "aarch64")))]
 pub mod aarch64;
-// #[cfg(feature = "arch-urcl")]
-// pub mod urcl;
+#[cfg(feature = "arch-urcl")]
+pub mod urcl;
 #[cfg(any(feature = "arch-x86_64", all(feature = "arch-native", target_arch = "x86_64")))]
 pub mod x86_64;
 
@@ -111,7 +111,7 @@ impl<'a, I: Inst> VCodeGen<'a, I> {
     }
 }
 
-impl<'a, I: Inst + core::fmt::Display> VCode<'a, I> {
+impl<'a, I: Inst> VCode<'a, I> {
     pub fn generate<S: InstSelector<Instruction = I>, A: RegAlloc<I::Register>>(
         ir: &'a Program<'a>,
         mut sel: S,
@@ -168,8 +168,6 @@ impl<'a, I: Inst + core::fmt::Display> VCode<'a, I> {
             ra.next_fn();
         }
 
-        println!("{}", gen.vcode);
-
         for f in gen.vcode.funcs.iter_mut() {
             for i in f.pre.iter_mut() {
                 i.apply_alloc(&alloc);
@@ -184,7 +182,9 @@ impl<'a, I: Inst + core::fmt::Display> VCode<'a, I> {
 
         I::apply_mandatory_transforms(&mut gen.vcode);
 
-        for _ in (0..PEEPHOLE_OPT_ITERS).take_while(|_| gen.vcode.apply_peephole_once()) {}
+        for i in (0..PEEPHOLE_OPT_ITERS).take_while(|_| gen.vcode.apply_peephole_once()) {
+            eprintln!("peephole opt iter {i} ok");
+        }
 
         gen.vcode
     }

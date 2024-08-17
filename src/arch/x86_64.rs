@@ -390,7 +390,7 @@ impl Inst for X64Inst {
                 vec![Self::CSet(*c, *r1), Self::Jcc(*c, *d)],
                 3,
             )),
-            [Self::Int2I(_, X64IntOp::Sub, 0, VReg::Real(X64Reg::Sp))] => Some((vec![], 1)),
+            [Self::Int2I(_, X64IntOp::Sub, 0, VReg::Real(X64Reg::Sp)), ..] => Some((vec![], 1)),
             _ => None,
         }
     }
@@ -444,6 +444,8 @@ impl InstSelector for X64Selector {
             self.callee_save_vregs[ri] = save;
             gen.push_inst(X64Inst::Mov(X64BitSize::Quad, r, save));
         }
+
+        // TODO: fetch args
     }
 
     fn select_inst(&mut self, gen: &mut VCodeGen<X64Inst>, inst: &Instruction) {
@@ -528,7 +530,6 @@ impl X64Selector {
             ((tv, t.typ.clone()), (fv, t.typ))
         }).collect();
         let seq = crate::algo::par_move::parallel_move(&mut pc, &mut |a, _| (gen.vreg_alloc.alloc_virtual(), a.1));
-        println!("{seq:?}");
 
         for ((to, typ), (from, _)) in seq {
             let bits = X64BitSize::from_vt(&typ);

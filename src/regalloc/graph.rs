@@ -12,7 +12,7 @@ pub struct GraphAlloc<R: Register> {
     at_inst: usize,
 }
 
-impl<R: Register + 'static + core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
+impl<R: Register + 'static> RegAlloc<R> for GraphAlloc<R> {
     fn new_sized(_size: usize) -> Self {
         Self {
             first_def: HashMap::new(),
@@ -123,7 +123,6 @@ impl<R: Register + 'static + core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
             }
         }
 
-        print!("graph h{{"); for (v, i) in intg.iter() { print!("{v};"); for i in i.iter() { print!("{v}--{i};"); } }println!("}}");
 
         for (i, (db, _)) in self.first_def.iter() {
             for j in live_out[db.map_or(0, |b| b.0 + 1)].iter() {
@@ -134,13 +133,12 @@ impl<R: Register + 'static + core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
             }
         }
 
-        print!("graph h{{"); for (v, i) in intg.iter() { print!("{v};"); for i in i.iter() { print!("{v}--{i};"); } }println!("}}");
+        // print!("graph h{{"); for (v, i) in intg.iter() { print!("{v};"); for i in i.iter() { print!("{v}--{i};"); } }println!("}}");
 
         for (cf, cts) in self.coalesce_to.iter_mut() {
             cts.retain(|t| intg.get(cf).map_or(true, |i| !i.contains(t)));
         }
         self.coalesce_to.retain(|_, c| !c.is_empty());
-        println!("{:?}", self.coalesce_to);
 
         let mut color = HashMap::with_capacity(intg.len());
         let mut tryc = HashMap::new();
@@ -193,7 +191,6 @@ impl<R: Register + 'static + core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
             color.insert(*node, c);
             self.color_coalesce_recursive(node, &mut color, c);
         }
-        println!("{color:?}");
 
         for (v, c) in color.iter() {
             match v {

@@ -41,10 +41,9 @@ fn main() {
         builder.set_ret(Some(zero.into()));
     }
 
-    println!("{builder}");
+    eprintln!("{builder}");
     let prog = builder.done();
-    prog.print_cfg();
-    println!("{prog}");
+    eprintln!("{prog}");
 
     let sel = arch::x86_64::X64Selector::new();
     let vc = arch::VCode::generate::<_, regalloc::graph::GraphAlloc<_>>(&prog, sel);

@@ -2,7 +2,8 @@ use crate::*;
 
 type BlockIdSet = Vec<HashSet<BlockId>>;
 
-fn dominates_inst(bb1: BlockId, inst1: usize, bb2: BlockId, inst2: usize, dom: &BlockIdSet) -> bool {
+fn dominates_inst(bb1: BlockId, _inst1: usize, bb2: BlockId, _inst2: usize, dom: &BlockIdSet) -> bool {
+    // TODO: consider instruction location
     dom[bb1.0].contains(&bb2)
 }
 
@@ -42,25 +43,18 @@ fn dom_tree_iter<F: FnMut(BlockId)>(idom: &[Option<BlockId>], at: BlockId, f: &m
 impl Function<'_> {
     pub fn construct_ssa(&mut self) {
         let mut pred = self.pred();
-        println!("{pred:?}");
 
         self.remove_crit_edge(&mut pred);
 
         let dom = self.dominators(&pred);
-        println!("{dom:?}");
         let idom = immediate_dominators(&dom);
-        println!("{idom:?}");
         let dft = self.dominance_frontiers(&idom, &pred);
-        println!("{dft:?}");
 
         let mut vdefs = self.get_val_defs();
-        println!("{vdefs:?}");
         let adefs = self.get_alloc_defs();
-        println!("{adefs:?}");
 
         self.phi_lower(&mut vdefs, &adefs, &dft, &dom, &idom, &pred);
         self.delete_alloc(&adefs);
-        println!("{}", self);
         self.copy_elision(&dom);
     }
 
@@ -76,7 +70,6 @@ impl Function<'_> {
         }
 
         for (bi, b) in self.blocks.iter_mut().enumerate() {
-            println!("{bi}");
             for (ii, i) in b.insts.iter_mut().enumerate() {
                 for (repl, (with, dbi, dii)) in value.iter() {
                     if dominates_inst(BlockId(bi), ii, *dbi, *dii, dom) {
@@ -87,7 +80,6 @@ impl Function<'_> {
 
             for (repl, (with, dbi, _)) in value.iter() {
                 if dom[bi].contains(dbi) {
-                    println!("{repl} {with}");
                     b.term.replace_arg(*repl, *with);
                 }
             }

@@ -4,7 +4,6 @@ use crate::*;
 use arch::*;
 
 pub mod graph;
-// pub mod linear;
 
 pub trait Register: Sized + Clone + Copy + fmt::Display + Eq + core::hash::Hash + TryFrom<usize> + Into<usize> {
     const REG_COUNT: usize;
