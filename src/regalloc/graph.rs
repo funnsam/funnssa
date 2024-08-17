@@ -105,14 +105,14 @@ impl<R: Register + 'static> RegAlloc<R> for GraphAlloc<R> {
 
             if let Some((du, _)) = self.last_uses.get(i) {
                 if du.len() > 1 || (!du.is_empty() && &du[0].0 != db) { continue; }
-                let dr = *di..du.get(0).map_or(usize::MAX, |u| u.1);
+                let dr = *di..du.first().map_or(usize::MAX, |u| u.1);
 
                 for (j, (uses, _)) in self.last_uses.iter() {
                     intg.entry(*j).or_default();
 
                     if i == j || uses.len() > 1 || (!uses.is_empty() && &uses[0].0 != db) { continue; }
                     if let Some(ud) = self.first_def.get(j) {
-                        let ur = ud.1..uses.get(0).map_or(ud.1, |u| u.1);
+                        let ur = ud.1..uses.first().map_or(ud.1, |u| u.1);
 
                         if dr.start < ur.end && ur.start < dr.end {
                             intg.get_mut(i).unwrap().insert(*j);
@@ -176,7 +176,7 @@ impl<R: Register + 'static> RegAlloc<R> for GraphAlloc<R> {
             if color.contains_key(node) { continue; }
 
             let color_ok = |edges: &HashSet<VReg<R>>, color: &HashMap<VReg<R>, usize>, c: usize| {
-                edges.iter().find(|e| color.get(e).map_or(false, |e| *e == c)).is_none()
+                !edges.iter().any(|e| color.get(e).map_or(false, |e| *e == c))
             };
 
             if let Some(tc) = tryc.get(node) {
@@ -193,10 +193,7 @@ impl<R: Register + 'static> RegAlloc<R> for GraphAlloc<R> {
         }
 
         for (v, c) in color.iter() {
-            match v {
-                VReg::Virtual(v) => alloc[*v] = R::get_regs().get(*c).cloned().map_or_else(|| VReg::Spilled(*c - R::get_regs().len()), VReg::Real),
-                _ => {},
-            }
+            if let VReg::Virtual(v) = v { alloc[*v] = R::get_regs().get(*c).cloned().map_or_else(|| VReg::Spilled(*c - R::get_regs().len()), VReg::Real) }
         }
     }
 }

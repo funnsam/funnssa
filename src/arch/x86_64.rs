@@ -42,6 +42,7 @@ pub enum X64BitSize {
 
 impl X64BitSize {
     pub fn from_bit_size(b: usize) -> Self {
+        #[allow(clippy::match_overlapping_arm)]
         match b {
             ..=8 => Self::Byte,
             ..=16 => Self::Word,
@@ -81,24 +82,24 @@ pub enum X64Reg {
 }
 
 impl Register for X64Reg {
-    const REG_COUNT: usize = <X64Reg as strum::EnumCount>::COUNT;
+    const REG_COUNT: usize = <Self as strum::EnumCount>::COUNT;
 
     fn get_regs() -> &'static [Self] {
         &[
-            X64Reg::Ax,
-            X64Reg::Di,
-            X64Reg::Si,
-            X64Reg::Dx,
-            X64Reg::Cx,
-            X64Reg::R8,
-            X64Reg::R9,
+            Self::Ax,
+            Self::Di,
+            Self::Si,
+            Self::Dx,
+            Self::Cx,
+            Self::R8,
+            Self::R9,
 
-            X64Reg::Bx,
-            X64Reg::R12,
-            X64Reg::R13,
-            X64Reg::R14,
-            X64Reg::R15,
-            X64Reg::Di,
+            Self::Bx,
+            Self::R12,
+            Self::R13,
+            Self::R14,
+            Self::R15,
+            Self::Di,
         ]
     }
 }
@@ -107,7 +108,7 @@ impl TryFrom<usize> for X64Reg {
     type Error = ();
 
     fn try_from(value: usize) -> Result<Self, Self::Error> {
-        X64Reg::from_repr(value).ok_or(())
+        Self::from_repr(value).ok_or(())
     }
 }
 
@@ -364,10 +365,7 @@ impl Inst for X64Inst {
 
             let update = |inst: &mut Vec<Self>| for i in inst.iter_mut() {
                 if let Self::Int2I(_, _, v, VReg::Real(X64Reg::Sp)) = i {
-                    match *v {
-                        FRAME_SIZE_MARKER => *v = frame_size as i64 * 8,
-                        _ => {},
-                    }
+                    if *v == FRAME_SIZE_MARKER { *v = frame_size as i64 * 8 }
                 }
             };
 
@@ -516,18 +514,24 @@ impl InstSelector for X64Selector {
     }
 }
 
+impl Default for X64Selector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl X64Selector {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             callee_save_vregs: [VReg::Virtual(0); CALLEE_SAVE.len()],
         }
     }
 
-    fn select_pre_jump(&mut self, gen: &mut VCodeGen<X64Inst>, t: &TermBlockId) {
+    fn select_pre_jump(&self, gen: &mut VCodeGen<X64Inst>, t: &TermBlockId) {
         let mut pc = t.args.iter().zip(gen.get_bb_arg_dest(t.target).to_vec().iter()).map(|(f, t)| {
             let fv = gen.get_value_vreg(*f);
             let tv = gen.get_value_vreg(t.id);
-            ((tv, t.typ.clone()), (fv, t.typ))
+            ((tv, t.typ), (fv, t.typ))
         }).collect();
         let seq = crate::algo::par_move::parallel_move(&mut pc, &mut |a, _| (gen.vreg_alloc.alloc_virtual(), a.1));
 

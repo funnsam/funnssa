@@ -29,7 +29,7 @@ impl<'a> Cfg<'a> {
         &self.bbs[bb_id.0].args
     }
 
-    pub fn bb_term(&'a self, bb_id: BlockId) -> &'a Terminator {
+    pub const fn bb_term(&'a self, bb_id: BlockId) -> &'a Terminator {
         &self.bbs[bb_id.0].term
     }
 }
