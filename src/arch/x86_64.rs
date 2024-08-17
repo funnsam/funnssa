@@ -85,6 +85,8 @@ impl Register for X64Reg {
 
     fn get_regs() -> &'static [Self] {
         &[
+            X64Reg::Ax,
+            X64Reg::Di,
             X64Reg::Si,
             X64Reg::Dx,
             X64Reg::Cx,
@@ -97,8 +99,6 @@ impl Register for X64Reg {
             X64Reg::R14,
             X64Reg::R15,
             X64Reg::Di,
-
-            X64Reg::Ax,
         ]
     }
 }

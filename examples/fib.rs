@@ -28,12 +28,12 @@ fn main() {
         let xv = builder.push_load(x, typ).try_into().unwrap();
         let yv = builder.push_load(y, typ).try_into().unwrap();
         let nx = builder.push_int_op(IntOp::Add, xv, yv);
-        let ny = builder.push_int_op(IntOp::Sub, nx, yv);
+        let ny = xv;
         // builder.push_call(print, vec![ny.into()]);
         builder.push_store(x, nx);
         builder.push_store(y, ny);
 
-        let c = builder.push_int_op(IntOp::ULt, nx, xmax);
+        let c = builder.push_int_op(IntOp::ULt, ny, xmax);
         builder.set_cond_br(c, iter, exit);
 
         builder.position_at_bb(exit);

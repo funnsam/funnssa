@@ -138,6 +138,7 @@ impl<R: Register + 'static + core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
             cts.retain(|t| intg.get(cf).map_or(true, |i| !i.contains(t)));
         }
         self.coalesce_to.retain(|_, c| !c.is_empty());
+        println!("{:?}", self.coalesce_to);
 
         let mut color = HashMap::with_capacity(intg.len());
         let mut tryc = HashMap::new();
@@ -149,12 +150,15 @@ impl<R: Register + 'static + core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
                     alloc[*v] = VReg::Real(*r);
                     if let Some((c, _)) = R::get_regs().iter().enumerate().find(|(_, r2)| r == *r2) {
                         color.insert(*node, c);
-
-                        if let Some(cts) = self.coalesce_to.get(node) {
-                            for ct in cts.iter() {
-                                tryc.insert(*ct, c);
-                            }
-                        }
+                        println!("start {node}");
+                        self.color_coalesce_recursive(node, &mut tryc, c);
+                    }
+                },
+                VReg::Real(r) => {
+                    if let Some((c, _)) = R::get_regs().iter().enumerate().find(|(_, r2)| r == *r2) {
+                        color.insert(*node, c);
+                        println!("start {node}");
+                        self.color_coalesce_recursive(node, &mut tryc, c);
                     }
                 },
                 _ => {
@@ -167,9 +171,8 @@ impl<R: Register + 'static + core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
             let am = self.coalesce_to.contains_key(a) as usize + 2;
             let bm = self.coalesce_to.contains_key(b) as usize + 2;
 
-            (bu * bm).cmp(&(au * am)).then_with(|| (be * bm).cmp(&(ae * bm)))
+            (bu * bm).cmp(&(au * am)).then_with(|| (be * bm).cmp(&(ae * am)))
         });
-        println!("{order:?}");
 
         for (node, ..) in order.into_iter() {
             if color.contains_key(node) { continue; }
@@ -188,14 +191,8 @@ impl<R: Register + 'static + core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
 
             let c = (0..).find(|c| color_ok(&intg[node], &color, *c)).unwrap();
             color.insert(*node, c);
-
-            if let Some(cts) = self.coalesce_to.get(node) {
-                for ct in cts.iter() {
-                    if !color.contains_key(ct) {
-                        color.insert(*ct, c);
-                    }
-                }
-            }
+            println!("start {node}");
+            self.color_coalesce_recursive(node, &mut color, c);
         }
 
         for (v, c) in color.iter() {
@@ -229,6 +226,19 @@ impl<R: Register> GraphAlloc<R> {
                 live_out[p.0 + 1].push(v);
 
                 self.mark(Some(*p), v, cfg, gen, live_in, live_out);
+            }
+        }
+    }
+
+    fn color_coalesce_recursive(&self, node: &VReg<R>, color: &mut HashMap<VReg<R>, usize>, c: usize) {
+        if let Some(cts) = self.coalesce_to.get(node) {
+            for ct in cts.iter() {
+                if !color.contains_key(ct) {
+                    color.insert(*ct, c);
+                    println!("{ct}");
+                    self.color_coalesce_recursive(ct, color, c);
+                    println!("{ct} end");
+                }
             }
         }
     }

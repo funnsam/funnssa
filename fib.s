@@ -5,26 +5,24 @@ main:
 pushq %rbp
 movq %rsp, %rbp
 .L0:
-movl $1, %ecx
-xor %esi, %esi
-movl $1000, %r9d
-movl %esi, %edx
-movl %ecx, %r8d
+movl $1, %esi
+xor %edi, %edi
+movl $1000, %ecx
+movl %edi, %edx
+movl %esi, %eax
 .L1:
-movl %r8d, %esi
-add %edx, %esi
-movl %esi, %ecx
-sub %edx, %ecx
-movl %esi, %edi
-movl %ecx, %eax
-cmpl %r9d, %esi
-setb %sil
+movl %eax, %edi
+add %edx, %edi
+movl %edi, %esi
+movl %eax, %r8d
+cmpl %ecx, %eax
+setb %dil
 jb .L3
 .L2:
 xor %eax, %eax
 leave
 ret
 .L3:
-movl %eax, %edx
-movl %edi, %r8d
+movl %r8d, %edx
+movl %esi, %eax
 jmp .L1
