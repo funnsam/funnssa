@@ -4,7 +4,7 @@ use crate::types::*;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Value {
     pub typ: ValueType,
-    pub(crate) id: ValueId,
+    pub id: ValueId,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -12,8 +12,8 @@ pub struct ValueId(pub(crate) usize);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct IntValue {
-    pub(crate) size: usize,
-    pub(crate) id: ValueId,
+    pub size: usize,
+    pub id: ValueId,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -39,6 +39,12 @@ impl TryInto<IntValue> for Value {
             }),
             _ => Err(())
         }
+    }
+}
+
+impl ValueId {
+    pub fn of_type(self, typ: ValueType) -> Value {
+        Value { typ, id: self }
     }
 }
 
