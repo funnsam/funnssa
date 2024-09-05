@@ -12,4 +12,6 @@ arch-common = ["arch-x86_64", "arch-aarch64"]
 arch-x86_64 = []
 arch-aarch64 = []
 arch-urcl = []
+
 arch-native = []
+arch-all = ["arch-x86_64", "arch-aarch64", "arch-urcl"]

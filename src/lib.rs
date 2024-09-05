@@ -60,7 +60,7 @@ pub enum Instruction {
 
     Call(Option<Value>, FuncId, Vec<Value>),
 
-    Assign(Value, u128),
+    Assign(IntValue, u128),
     Copy(Value, Value),
     IntOp(IntOp, IntValue, IntValue, IntValue),
     SignExt(IntValue, IntValue),

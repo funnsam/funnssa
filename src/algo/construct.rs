@@ -207,7 +207,7 @@ impl Function<'_> {
         for (bi, b) in self.blocks.iter().enumerate() {
             for (ii, i) in b.insts.iter().enumerate() {
                 match i {
-                    Instruction::Assign(Value { id, .. }, _)
+                    Instruction::Assign(IntValue { id, .. }, _)
                         | Instruction::Load(Value { id, .. }, _)
                         | Instruction::Copy(Value { id, .. }, _)
                         | Instruction::IntOp(_, IntValue { id, .. }, ..)

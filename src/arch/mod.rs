@@ -34,7 +34,15 @@ pub trait Inst: Sized {
         None
     }
 
-    fn emit_assembly<W: std::io::Write>(f: &mut W, vcode: &VCode<Self>) -> std::io::Result<()>;
+    fn emit_assembly<W: std::io::Write>(f: &mut W, vcode: &VCode<Self>) -> std::io::Result<()> {
+        _ = (f, vcode);
+        Err(std::io::ErrorKind::Unsupported.into())
+    }
+
+    fn emit_object_file<W: std::io::Write>(f: &mut W, vcode: &VCode<Self>) -> std::io::Result<()> {
+        _ = (f, vcode);
+        Err(std::io::ErrorKind::Unsupported.into())
+    }
 }
 
 pub struct VCodeGen<'a, I: Inst> {
@@ -224,6 +232,10 @@ impl<'a, I: Inst> VCode<'a, I> {
 
     pub fn emit_assembly<W: std::io::Write>(&self, f: &mut W) -> std::io::Result<()> {
         I::emit_assembly(f, self)
+    }
+
+    pub fn emit_object_file<W: std::io::Write>(&self, f: &mut W) -> std::io::Result<()> {
+        I::emit_object_file(f, self)
     }
 }
 

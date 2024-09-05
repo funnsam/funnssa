@@ -9,9 +9,9 @@ fn main() {
     builder.position_at_function(start);
     let l = builder.push_block();
     builder.position_at_bb(l);
-    let one = builder.push_int_const(32, 1);
-    let two = builder.push_int_const(32, 2);
-    let res = builder.push_int_op(IntOp::Add, one, two);
+    let one = builder.build_int_const(32, 1);
+    let two = builder.build_int_const(32, 2);
+    let res = builder.build_int_op(IntOp::Add, one, two);
     builder.set_ret(Some(res.into()));
 
     println!("{builder}");
@@ -22,5 +22,5 @@ fn main() {
     let sel = arch::x86_64::X64Selector::new();
     let vc = arch::VCode::generate::<_, regalloc::graph::GraphAlloc<_>>(&prog, sel);
 
-    vc.emit_assembly(&mut std::io::stdout()).unwrap();
+    vc.emit_object_file(&mut std::io::stdout()).unwrap();
 }

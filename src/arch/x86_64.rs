@@ -249,11 +249,8 @@ impl Inst for X64Inst {
     }
 
     fn apply_alloc(&mut self, ra: &[VReg<Self::Register>]) {
-        let apply = |r: &mut X64VReg| match r {
-            VReg::Virtual(v) | VReg::VirtReal(v, _) => {
-                *r = ra[*v];
-            },
-            _ => {},
+        let apply = |r: &mut X64VReg| if let VReg::Virtual(v) | VReg::VirtReal(v, _) = r {
+            *r = ra[*v];
         };
 
         match self {
@@ -432,7 +429,7 @@ impl Inst for X64Inst {
 }
 
 pub struct X64Selector {
-    callee_save_vregs: [VReg<X64Reg>; CALLEE_SAVE.len()],
+    callee_save_vregs: [X64VReg; CALLEE_SAVE.len()],
 }
 
 impl InstSelector for X64Selector {
@@ -456,7 +453,7 @@ impl InstSelector for X64Selector {
     fn select_inst(&mut self, gen: &mut VCodeGen<X64Inst>, inst: &Instruction) {
         match inst {
             Instruction::Assign(d, v) => {
-                let bits = X64BitSize::from_vt(&d.typ);
+                let bits = X64BitSize::from_bit_size(d.size);
                 let d = gen.get_value_vreg(d.id);
                 gen.push_inst(X64Inst::MovI(bits, *v as i64, d));
             },

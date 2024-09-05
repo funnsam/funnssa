@@ -17,9 +17,6 @@ const SP_DECR: i64 = i64::MIN;
 const SPILL_0: UrclReg = UrclReg::R6;
 const SPILL_1: UrclReg = UrclReg::R7;
 
-#[derive(Default)]
-pub struct UrclSelector;
-
 #[derive(Clone)]
 pub enum Operand {
     Immediate(i64),
@@ -45,6 +42,8 @@ impl<T: Into<VReg<UrclReg>>> From<T> for Operand {
 pub enum UrclInst {
     Int2(UrclIntOp, VReg<UrclReg>, Operand, Operand),
     Mov(VReg<UrclReg>, VReg<UrclReg>),
+    BlockArgMov(VReg<UrclReg>, VReg<UrclReg>),
+    SavingMov(VReg<UrclReg>, VReg<UrclReg>),
     Imm(VReg<UrclReg>, u64),
 
     Cal(Location),
@@ -132,15 +131,26 @@ impl Inst for UrclInst {
             Self::Mov(d, v) => {
                 ra.define(*d);
                 ra.add_use(*v);
+                ra.coalesce_move(*v, *d);
+            },
+            Self::BlockArgMov(d, v) => {
+                ra.add_use(*v);
+                ra.coalesce_move(*v, *d);
+            },
+            Self::SavingMov(d, v) => {
+                ra.define(*d);
+                ra.add_use(*v);
+                ra.coalesce_move(*v, *d);
+                ra.prioritize(*v, -10);
             },
             Self::Imm(d, _) => ra.define(*d),
             Self::Bnz(_, c) => ra.add_use(*c),
             Self::Llod(d, b, o) => {
-                // ra.define(*d);
+                ra.define(*d);
                 ra.add_use(if *b != UrclReg::Sp.into() { *b } else { VReg::Spilled((*o) as usize) });
             },
             Self::Lstr(b, o, v) => {
-                // ra.add_use(*v);
+                ra.add_use(*v);
                 if *b != UrclReg::Sp.into() {
                     ra.add_use(*b);
                 } else {
@@ -152,7 +162,7 @@ impl Inst for UrclInst {
     }
 
     fn apply_alloc(&mut self, ra: &[VReg<UrclReg>]) {
-        let apply = |r: &mut VReg<UrclReg>| if let VReg::Virtual(v) = r {
+        let apply = |r: &mut VReg<UrclReg>| if let VReg::Virtual(v) | VReg::VirtReal(v, _) = r {
             *r = ra[*v];
         };
 
@@ -162,7 +172,7 @@ impl Inst for UrclInst {
                 if let Operand::Register(a) = a { apply(a); }
                 if let Operand::Register(b) = b { apply(b); }
             },
-            Self::Mov(d, v) => {
+            Self::Mov(d, v) | Self::BlockArgMov(d, v) | Self::SavingMov(d, v) => {
                 apply(d);
                 apply(v);
             },
@@ -182,7 +192,7 @@ impl Inst for UrclInst {
 
     fn apply_mandatory_transforms(vcode: &mut VCode<Self>) {
         for f in vcode.funcs.iter_mut() {
-            let mut frame_size = CALLEE_SAVE.len();
+            let mut frame_size = 0;
 
             let mut unspill = |inst: &mut Vec<Self>| {
                 let mut i = 0;
@@ -212,6 +222,11 @@ impl Inst for UrclInst {
                         Self::Mov(d, v) => {
                             ud(d);
                             ua(v);
+                        },
+                        Self::BlockArgMov(d, v) | Self::SavingMov(d, v) => {
+                            ud(d);
+                            ua(v);
+                            inst[i] = Self::Mov(*d, *v);
                         },
                         Self::Imm(d, _) => ud(d),
                         Self::Bnz(_, c) => ua(c),
@@ -329,19 +344,60 @@ impl Inst for UrclInst {
     }
 }
 
+pub struct UrclSelector {
+    callee_save_vregs: [VReg<UrclReg>; CALLEE_SAVE.len()],
+    sp: VReg<UrclReg>,
+}
+
+impl Default for UrclSelector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl UrclSelector {
+    pub const fn new() -> Self {
+        Self {
+            callee_save_vregs: [VReg::Virtual(0); CALLEE_SAVE.len()],
+            sp: VReg::Virtual(0),
+        }
+    }
+
+    fn select_pre_jump(&self, gen: &mut VCodeGen<UrclInst>, t: &TermBlockId) {
+        let mut pc = gen.get_bb_arg_dest(t.target).to_vec().iter().zip(t.args.iter()).map(|(t, f)| {
+            let t = gen.get_value_vreg(t.id);
+            let f = gen.get_value_vreg(*f);
+            (t, f)
+        }).collect();
+        let seq = crate::algo::par_move::parallel_move(&mut pc, &mut |_, _| gen.vreg_alloc.alloc_virtual());
+
+        for (to, from) in seq {
+            gen.push_inst(UrclInst::BlockArgMov(to, from));
+        }
+    }
+}
+
 impl InstSelector for UrclSelector {
     type Instruction = UrclInst;
 
     fn select_pre_fn(&mut self, gen: &mut VCodeGen<Self::Instruction>, args: &[ValueType]) {
-        gen.push_inst(UrclInst::Int2(UrclIntOp::Add, UrclReg::Sp.into(), UrclReg::Sp.into(), Operand::Immediate(SP_DECR)));
-        for (i, r) in CALLEE_SAVE.iter().copied().enumerate() {
-            gen.push_inst(UrclInst::Lstr(UrclReg::Sp.into(), i as i64, r.into()));
+        let osp = gen.vreg_alloc.alloc_virtual().force_in_reg(UrclReg::Sp);
+        let sp = gen.vreg_alloc.alloc_virtual().force_in_reg(UrclReg::Sp);
+        gen.push_inst(UrclInst::Int2(UrclIntOp::Add, sp, osp.into(), Operand::Immediate(SP_DECR)));
+        self.sp = sp;
+
+        for (ri, r) in CALLEE_SAVE.iter().enumerate() {
+            let r = gen.vreg_alloc.alloc_virtual().force_in_reg(*r);
+            let save = gen.vreg_alloc.alloc_virtual();
+            self.callee_save_vregs[ri] = save;
+            gen.push_inst(UrclInst::SavingMov(save, r));
         }
 
         // TODO: big ass arg counts
         for (i, (_, r)) in args.iter().zip(ARG_REGS.iter().copied()).enumerate() {
             let i = gen.get_arg_vreg(i);
-            gen.push_inst(UrclInst::Mov(i, r.into()));
+            let r = gen.vreg_alloc.alloc_virtual().force_in_reg(r);
+            gen.push_inst(UrclInst::Mov(i, r));
         }
     }
 
@@ -377,21 +433,24 @@ impl InstSelector for UrclSelector {
                 let mut saved = Vec::with_capacity(a.len());
                 for (a, r) in a.iter().zip(ARG_REGS.iter().copied()) {
                     let a = gen.get_value_vreg(a.id);
+                    let r = gen.vreg_alloc.alloc_virtual().force_in_reg(r);
                     let save = gen.vreg_alloc.alloc_virtual();
-                    gen.push_inst(UrclInst::Mov(save, r.into()));
-                    gen.push_inst(UrclInst::Mov(r.into(), a));
+                    gen.push_inst(UrclInst::SavingMov(save, r));
+                    gen.push_inst(UrclInst::Mov(r, a));
                     saved.push(save);
                 }
 
                 gen.push_inst(UrclInst::Cal((*d).into()));
 
                 if let Some(r) = r {
-                    let r = gen.get_value_vreg(r.id);
-                    gen.push_inst(UrclInst::Mov(r, RET_REG.into()));
+                    let rv = gen.get_value_vreg(r.id);
+                    let r1 = gen.vreg_alloc.alloc_virtual().force_in_reg(RET_REG);
+                    gen.push_inst(UrclInst::Mov(rv, r1));
                 }
 
                 for (s, r) in saved.into_iter().zip(ARG_REGS.iter().copied()) {
-                    gen.push_inst(UrclInst::Mov(r.into(), s));
+                    let r = gen.vreg_alloc.alloc_virtual().force_in_reg(r);
+                    gen.push_inst(UrclInst::SavingMov(r.into(), s));
                 }
             },
             Instruction::Alloc(..) => todo!(),
@@ -403,22 +462,29 @@ impl InstSelector for UrclSelector {
         match term {
             Terminator::CondBranch(c, a, b) => {
                 let c = gen.get_value_vreg(c.id);
+                self.select_pre_jump(gen, a);
                 gen.push_inst(UrclInst::Bnz(a.target.into(), c));
+                self.select_pre_jump(gen, b);
                 gen.push_inst(UrclInst::Jmp(b.target.into()));
             },
             Terminator::UncondBranch(t) => {
+                self.select_pre_jump(gen, t);
                 gen.push_inst(UrclInst::Jmp(t.target.into()));
             },
             Terminator::Return(r) => {
                 if let Some(r) = r {
-                    let r = gen.get_value_vreg(r.id);
-                    gen.push_inst(UrclInst::Mov(RET_REG.into(), r));
+                    let rv = gen.get_value_vreg(r.id);
+                    let r1 = gen.vreg_alloc.alloc_virtual().force_in_reg(RET_REG);
+                    gen.push_inst(UrclInst::Mov(r1, rv));
                 }
 
-                for (i, r) in CALLEE_SAVE.iter().copied().enumerate().skip(r.is_some() as _) {
-                    gen.push_inst(UrclInst::Llod(r.into(), UrclReg::Sp.into(), i as i64));
+                for (ri, r) in CALLEE_SAVE.iter().enumerate() {
+                    let r = gen.vreg_alloc.alloc_virtual().force_in_reg(*r);
+                    gen.push_inst(UrclInst::SavingMov(r, self.callee_save_vregs[ri]));
                 }
-                gen.push_inst(UrclInst::Int2(UrclIntOp::Add, UrclReg::Sp.into(), UrclReg::Sp.into(), Operand::Immediate(SP_INCR)));
+
+                let nsp = gen.vreg_alloc.alloc_virtual().force_in_reg(UrclReg::Sp);
+                gen.push_inst(UrclInst::Int2(UrclIntOp::Add, nsp, self.sp.into(), Operand::Immediate(SP_INCR)));
                 gen.push_inst(UrclInst::Ret);
             },
             Terminator::None => {},
@@ -467,7 +533,7 @@ impl fmt::Display for InstFmt<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
             UrclInst::Int2(op, d, a, b) => write!(f, "{op} {d} {a} {b}"),
-            UrclInst::Mov(d, v) => write!(f, "mov {d} {v}"),
+            UrclInst::Mov(d, v) | UrclInst::BlockArgMov(d, v) | UrclInst::SavingMov(d, v) => write!(f, "mov {d} {v}"),
             UrclInst::Imm(d, v) => write!(f, "imm {d} {v}"),
             UrclInst::Jmp(d) => write!(f, "jmp {}", LbFmt(d, self.1)),
             UrclInst::Bnz(d, c) => write!(f, "bnz {} {c}", LbFmt(d, self.1)),

@@ -43,7 +43,7 @@ impl TryInto<IntValue> for Value {
 }
 
 impl ValueId {
-    pub fn of_type(self, typ: ValueType) -> Value {
+    pub const fn of_type(self, typ: ValueType) -> Value {
         Value { typ, id: self }
     }
 }
