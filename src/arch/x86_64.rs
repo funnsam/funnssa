@@ -134,6 +134,7 @@ pub enum X64Inst {
     Leave,
 
     BlockArgMov(X64BitSize, X64VReg, X64VReg),
+    SavingMov(X64BitSize, X64VReg, X64VReg),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, strum::Display)]
@@ -213,6 +214,12 @@ impl Inst for X64Inst {
                 ra.add_use(*s);
                 ra.coalesce_move(*s, *d);
             },
+            Self::SavingMov(_, s, d) => {
+                ra.add_use(*s);
+                ra.define(*d);
+                ra.coalesce_move(*s, *d);
+                ra.prioritize(*s, -10);
+            },
             Self::MovI(_, _, d) => {
                 ra.define(*d);
             },
@@ -250,7 +257,7 @@ impl Inst for X64Inst {
         };
 
         match self {
-            Self::Mov(_, s, d) | Self::BlockArgMov(_, s, d) => {
+            Self::Mov(_, s, d) | Self::BlockArgMov(_, s, d) | Self::SavingMov(_, s, d) => {
                 apply(s);
                 apply(d);
             },
@@ -306,7 +313,7 @@ impl Inst for X64Inst {
                             ua(s);
                             ud(d);
                         },
-                        Self::BlockArgMov(t, s, d) => {
+                        Self::BlockArgMov(t, s, d) | Self::SavingMov(t, s, d) => {
                             ua(s);
                             ud(d);
                             inst[i] = Self::Mov(*t, *s, *d);
@@ -440,7 +447,7 @@ impl InstSelector for X64Selector {
             let r = gen.vreg_alloc.alloc_virtual().force_in_reg(*r);
             let save = gen.vreg_alloc.alloc_virtual();
             self.callee_save_vregs[ri] = save;
-            gen.push_inst(X64Inst::Mov(X64BitSize::Quad, r, save));
+            gen.push_inst(X64Inst::SavingMov(X64BitSize::Quad, r, save));
         }
 
         // TODO: fetch args
@@ -503,7 +510,7 @@ impl InstSelector for X64Selector {
 
                 for (ri, r) in CALLEE_SAVE.iter().enumerate() {
                     let r = gen.vreg_alloc.alloc_virtual().force_in_reg(*r);
-                    gen.push_inst(X64Inst::Mov(X64BitSize::Quad, self.callee_save_vregs[ri], r));
+                    gen.push_inst(X64Inst::SavingMov(X64BitSize::Quad, self.callee_save_vregs[ri], r));
                 }
 
                 gen.push_inst(X64Inst::Leave);
@@ -545,7 +552,7 @@ impl X64Selector {
 impl fmt::Display for X64Inst {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Mov(t, s, d) | Self::BlockArgMov(t, s, d) => write!(f, "mov{t} {}, {}", VRegFmt(s, t), VRegFmt(d, t)),
+            Self::Mov(t, s, d) | Self::BlockArgMov(t, s, d) | Self::SavingMov(t, s, d) => write!(f, "mov{t} {}, {}", VRegFmt(s, t), VRegFmt(d, t)),
             Self::MovI(t, s, d) => write!(f, "mov{t} ${s}, {}", VRegFmt(d, t)),
             Self::CSet(c, d) => write!(f, "set{c} {}", VRegFmt(d, &X64BitSize::Byte)),
             Self::Cmp(t, a, b) => write!(f, "cmp{t} {}, {}", VRegFmt(a, t), VRegFmt(b, t)),

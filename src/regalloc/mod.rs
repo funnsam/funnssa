@@ -21,6 +21,7 @@ pub trait RegAlloc<R: Register> where Self: Sized {
     fn define(&mut self, vr: VReg<R>);
     fn add_use(&mut self, vr: VReg<R>);
     fn coalesce_move(&mut self, from: VReg<R>, to: VReg<R>);
+    fn prioritize(&mut self, vr: VReg<R>, by: isize);
 
     fn alloc_regs<I: Inst<Register = R>>(&mut self, alloc: &mut [VReg<R>], cfg: cfg::Cfg, gen: &VCodeGen<I>);
 }

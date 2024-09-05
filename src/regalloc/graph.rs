@@ -5,8 +5,9 @@ type InnerLoc = (Option<BlockId>, usize);
 
 pub struct GraphAlloc<R: Register> {
     first_def: HashMap<VReg<R>, InnerLoc>,
-    last_uses: HashMap<VReg<R>, (Vec<InnerLoc>, usize)>,
+    last_uses: HashMap<VReg<R>, Vec<InnerLoc>>,
     coalesce_to: HashMap<VReg<R>, Vec<VReg<R>>>,
+    priority: HashMap<VReg<R>, isize>,
 
     at_block: Option<BlockId>,
     at_inst: usize,
@@ -18,6 +19,7 @@ impl<R: Register + 'static> RegAlloc<R> for GraphAlloc<R> {
             first_def: HashMap::new(),
             last_uses: HashMap::new(),
             coalesce_to: HashMap::new(),
+            priority: HashMap::new(),
 
             at_block: None,
             at_inst: 0,
@@ -59,24 +61,31 @@ impl<R: Register + 'static> RegAlloc<R> for GraphAlloc<R> {
     fn add_use(&mut self, vr: VReg<R>) {
         let u = self.last_uses.entry(vr).or_default();
 
-        u.1 += 1;
-        if u.0.last().map_or(false, |(b, _)| b == &self.at_block) {
-            u.0.last_mut().unwrap().1 = self.at_inst
+        if u.last().map_or(false, |(b, _)| b == &self.at_block) {
+            u.last_mut().unwrap().1 = self.at_inst
         } else {
-            u.0.push((self.at_block, self.at_inst));
+            u.push((self.at_block, self.at_inst));
         }
+
+        self.prioritize(vr, 1);
     }
 
     fn coalesce_move(&mut self, from: VReg<R>, to: VReg<R>) {
         self.coalesce_to.entry(from).or_default().push(to);
         self.coalesce_to.entry(to).or_default().push(from);
+        self.prioritize(from, 2);
+        self.prioritize(to, 2);
+    }
+
+    fn prioritize(&mut self, vr: VReg<R>, by: isize) {
+        *self.priority.entry(vr).or_default() += by;
     }
 
     fn alloc_regs<I: Inst<Register = R>>(&mut self, alloc: &mut [VReg<R>], cfg: cfg::Cfg, gen: &VCodeGen<I>) {
         let mut live_in = vec![Vec::new(); self.at_block.unwrap().0 + 1];
         let mut live_out = vec![Vec::new(); self.at_block.unwrap().0 + 1];
 
-        for (v, (uses, _)) in self.last_uses.iter() {
+        for (v, uses) in self.last_uses.iter() {
             for (ub, _ui) in uses.iter() {
                 if ub.is_some() && cfg.bb_term(ub.unwrap()).immediate_successor().into_iter().any(|e| {
                     e.args.iter().any(|e| gen.get_value_vreg_no_add(*e) == Some(*v))
@@ -103,11 +112,11 @@ impl<R: Register + 'static> RegAlloc<R> for GraphAlloc<R> {
         for (i, (db, di)) in self.first_def.iter() {
             intg.entry(*i).or_default();
 
-            if let Some((du, _)) = self.last_uses.get(i) {
+            if let Some(du) = self.last_uses.get(i) {
                 if du.len() > 1 || (!du.is_empty() && &du[0].0 != db) { continue; }
                 let dr = *di..du.first().map_or(usize::MAX, |u| u.1);
 
-                for (j, (uses, _)) in self.last_uses.iter() {
+                for (j, uses) in self.last_uses.iter() {
                     intg.entry(*j).or_default();
 
                     if i == j || uses.len() > 1 || (!uses.is_empty() && &uses[0].0 != db) { continue; }
@@ -160,16 +169,13 @@ impl<R: Register + 'static> RegAlloc<R> for GraphAlloc<R> {
                     }
                 },
                 _ => {
-                    order.push((node, edges.len(), self.last_uses.get(node).map_or(0, |u| u.1)));
+                    order.push((node, edges.len(), *self.priority.get(node).unwrap_or(&0)));
                 },
             }
         }
 
-        order.sort_unstable_by(|(a, ae, au), (b, be, bu)| {
-            let am = self.coalesce_to.contains_key(a) as usize + 2;
-            let bm = self.coalesce_to.contains_key(b) as usize + 2;
-
-            (bu * bm).cmp(&(au * am)).then_with(|| (be * bm).cmp(&(ae * am)))
+        order.sort_unstable_by(|(_, ae, au), (_, be, bu)| {
+            bu.cmp(au).then_with(|| be.cmp(ae))
         });
 
         for (node, ..) in order.into_iter() {
