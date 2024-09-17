@@ -1,3 +1,5 @@
+//! Note: outputed files are supposed to be processed with urcl-ld
+//!
 //! # Calling convention
 //! - `R1`: Return value
 //! - `R1` - `R5`: Arguments and temporaries
@@ -317,25 +319,26 @@ impl Inst for UrclInst {
         writeln!(f, "minreg 7")?;
         writeln!(f, "minstack 512")?;
 
-        for (i, n) in vcode.funcs.iter().enumerate() {
-            writeln!(f, "@define F{i} .F{}", n.name)?;
-        }
-
-        writeln!(f, "cal .F_start")?;
+        writeln!(f, "cal !_start")?;
         writeln!(f, "hlt")?;
 
-        for n in vcode.funcs.iter() {
+        for (i, n) in vcode.funcs.iter().enumerate() {
             if n.linkage == Linkage::External { continue; }
 
-            writeln!(f, "\n.F{}", n.name)?;
+            if n.linkage == Linkage::Public {
+                writeln!(f, "\n!{}", n.name)?;
+            }
+
+            writeln!(f, ".F{i}")?;
 
             for i in n.pre.iter() {
-                writeln!(f, "{}", InstFmt(i, n.name))?;
+                writeln!(f, "{i}")?;
             }
+
             for (bi, b) in n.body.iter().enumerate() {
-                writeln!(f, ".L{bi}_W{}", n.name)?;
+                writeln!(f, "..L{bi}")?;
                 for i in b.iter() {
-                    writeln!(f, "{}", InstFmt(i, n.name))?;
+                    writeln!(f, "{i}")?;
                 }
             }
         }
@@ -523,22 +526,14 @@ impl From<IntOp> for UrclIntOp {
 
 impl fmt::Display for UrclInst {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        InstFmt(self, "").fmt(f)
-    }
-}
-
-struct InstFmt<'a>(&'a UrclInst, &'a str);
-
-impl fmt::Display for InstFmt<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.0 {
+        match self {
             UrclInst::Int2(op, d, a, b) => write!(f, "{op} {d} {a} {b}"),
             UrclInst::Mov(d, v) | UrclInst::BlockArgMov(d, v) | UrclInst::SavingMov(d, v) => write!(f, "mov {d} {v}"),
             UrclInst::Imm(d, v) => write!(f, "imm {d} {v}"),
-            UrclInst::Jmp(d) => write!(f, "jmp {}", LbFmt(d, self.1)),
-            UrclInst::Bnz(d, c) => write!(f, "bnz {} {c}", LbFmt(d, self.1)),
+            UrclInst::Jmp(d) => write!(f, "jmp {}", LbFmt(d)),
+            UrclInst::Bnz(d, c) => write!(f, "bnz {} {c}", LbFmt(d)),
             UrclInst::Ret => write!(f, "ret"),
-            UrclInst::Cal(d) => write!(f, "cal {}", LbFmt(d, self.1)),
+            UrclInst::Cal(d) => write!(f, "cal {}", LbFmt(d)),
 
             UrclInst::Llod(d, b, o) => write!(f, "llod {d} {b} {o}"),
             UrclInst::Lstr(b, o, v) => write!(f, "lstr {b} {o} {v}"),
@@ -546,13 +541,13 @@ impl fmt::Display for InstFmt<'_> {
     }
 }
 
-struct LbFmt<'a>(&'a Location, &'a str);
+struct LbFmt<'a>(&'a Location);
 
 impl fmt::Display for LbFmt<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
-            Location::Function(n) => write!(f, "F{n}"),
-            Location::Block(b) => write!(f, ".L{b}_W{}", self.1),
+            Location::Function(n) => write!(f, ".F{n}"),
+            Location::Block(b) => write!(f, "..L{b}"),
         }
     }
 }
