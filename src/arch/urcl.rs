@@ -143,7 +143,7 @@ impl Inst for UrclInst {
                 ra.define(*d);
                 ra.add_use(*v);
                 ra.coalesce_move(*v, *d);
-                ra.prioritize(*v, -10);
+                ra.prioritize(*d, -10);
             },
             Self::Imm(d, _) => ra.define(*d),
             Self::Bnz(_, c) => ra.add_use(*c),
@@ -481,7 +481,7 @@ impl InstSelector for UrclSelector {
                     gen.push_inst(UrclInst::Mov(r1, rv));
                 }
 
-                for (ri, r) in CALLEE_SAVE.iter().enumerate() {
+                for (ri, r) in CALLEE_SAVE.iter().enumerate().skip(r.is_some() as _) {
                     let r = gen.vreg_alloc.alloc_virtual().force_in_reg(*r);
                     gen.push_inst(UrclInst::SavingMov(r, self.callee_save_vregs[ri]));
                 }

@@ -19,8 +19,8 @@ fn main() {
     prog.print_cfg();
     println!("{prog}");
 
-    let sel = arch::x86_64::X64Selector::new();
+    let sel = arch::urcl::UrclSelector::new();
     let vc = arch::VCode::generate::<_, regalloc::graph::GraphAlloc<_>>(&prog, sel);
 
-    vc.emit_object_file(&mut std::io::stdout()).unwrap();
+    vc.emit_assembly(&mut std::io::stdout()).unwrap();
 }

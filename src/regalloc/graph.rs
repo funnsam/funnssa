@@ -13,7 +13,7 @@ pub struct GraphAlloc<R: Register> {
     at_inst: usize,
 }
 
-impl<R: Register + 'static> RegAlloc<R> for GraphAlloc<R> {
+impl<R: Register + 'static +core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
     fn new_sized(_size: usize) -> Self {
         Self {
             first_def: HashMap::new(),
@@ -98,6 +98,9 @@ impl<R: Register + 'static> RegAlloc<R> for GraphAlloc<R> {
             }
         }
 
+        println!("{live_in:?}");
+        println!("{live_out:?}");
+
         let mut intg: HashMap<VReg<R>, HashSet<VReg<R>>> = HashMap::new();
         for live in live_in.iter().chain(live_out.iter()) {
             for i in live.iter() {
@@ -109,29 +112,63 @@ impl<R: Register + 'static> RegAlloc<R> for GraphAlloc<R> {
             }
         }
 
-        for (i, (db, di)) in self.first_def.iter() {
+        // TODO: lives in the bb
+        //
+        // a b
+        //      bb:
+        // |        def a
+        // |*|      def b
+        // |*|      last use a
+        //   |      last use b
+
+        // lives across the entire bb
+        //
+        // a b
+        // |    bb: a
+        // |*|      def b
+        // |*|      last use b
+        // |        escape a
+        for (i, (db, _)) in self.first_def.iter() {
             intg.entry(*i).or_default();
+            let db_idx = db.map_or(0, |i| i.0 + 1);
 
-            if let Some(du) = self.last_uses.get(i) {
-                if du.len() > 1 || (!du.is_empty() && &du[0].0 != db) { continue; }
-                let dr = *di..du.first().map_or(usize::MAX, |u| u.1);
+            // TODO: no this isnt correct
+            // for j in live_in[db_idx].iter().zip(live_out[db_idx].iter()).filter_map(|(a, b)| (a == b).then_some(a)) {
+            //     if i != j {
+            //         intg.get_mut(i).unwrap().insert(*j);
+            //         intg.get_mut(j).unwrap().insert(*i);
+            //     }
+            // }
+        }
 
-                for (j, uses) in self.last_uses.iter() {
-                    intg.entry(*j).or_default();
+        // lives partially in the bb, came in
+        //
+        // a b
+        // |    bb: a
+        // |*|      def b
+        // |*|      last use a
+        //   |      use b
+        for (i, u) in self.last_uses.iter() {
+            for (ab, ai) in u.iter() {
+                let ab_idx = ab.map_or(0, |i| i.0 + 1);
 
-                    if i == j || uses.len() > 1 || (!uses.is_empty() && &uses[0].0 != db) { continue; }
-                    if let Some(ud) = self.first_def.get(j) {
-                        let ur = ud.1..uses.first().map_or(ud.1, |u| u.1);
-
-                        if dr.start < ur.end && ur.start < dr.end {
-                            intg.get_mut(i).unwrap().insert(*j);
-                            intg.get_mut(j).unwrap().insert(*i);
-                        }
+                for (j, bi) in live_in[ab_idx].iter().filter_map(|j| self.last_uses.get(j)?.iter().find(|(b, _)| ab == b).map(|(_, i)| (j, i))) {
+                    if i != j && ai <= bi {
+                        intg.get_mut(i).unwrap().insert(*j);
+                        intg.get_mut(j).unwrap().insert(*i);
                     }
                 }
             }
         }
 
+        // TODO: lives partially in the bb, came out
+        //
+        // a b
+        //      bb:
+        // |        def a
+        // |*|      def b
+        // |*|      last use a
+        //   |      escape b
 
         for (i, (db, _)) in self.first_def.iter() {
             for j in live_out[db.map_or(0, |b| b.0 + 1)].iter() {
@@ -142,7 +179,7 @@ impl<R: Register + 'static> RegAlloc<R> for GraphAlloc<R> {
             }
         }
 
-        // print!("graph h{{"); for (v, i) in intg.iter() { print!("{v};"); for i in i.iter() { print!("{v}--{i};"); } }println!("}}");
+        print!("graph h{{"); for (v, i) in intg.iter() { print!("{v};"); for i in i.iter() { print!("{v}--{i};"); } }println!("}}");
 
         for (cf, cts) in self.coalesce_to.iter_mut() {
             cts.retain(|t| intg.get(cf).map_or(true, |i| !i.contains(t)));
