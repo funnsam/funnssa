@@ -4,8 +4,8 @@ fn main() {
     let mut builder = builder::Builder::new();
 
     let typ = ValueType::Int(32);
-    let (fib, _) = builder.create_function(Linkage::Public, "main", vec![], Some(typ));
-    let (print, _) = builder.create_function(Linkage::External, "print", vec![typ], None);
+    let (fib, _) = builder.create_function(Linkage::Public, "_start", vec![], Some(typ));
+    let (print, _) = builder.create_function(Linkage::External, "print_num", vec![typ], None);
 
     {
         builder.position_at_function(fib);
@@ -29,7 +29,7 @@ fn main() {
         let yv = builder.build_load(y, typ).try_into().unwrap();
         let nx = builder.build_int_op(IntOp::Add, xv, yv);
         let ny = xv;
-        // builder.build_call(print, vec![ny.into()]);
+        builder.build_call(print, vec![ny.into()]);
         builder.build_store(x, nx);
         builder.build_store(y, ny);
 

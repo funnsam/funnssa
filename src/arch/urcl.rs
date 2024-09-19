@@ -1,23 +1,27 @@
 //! Note: outputed files are supposed to be processed with urcl-ld
 //!
 //! # Calling convention
-//! - `R1`: Return value
-//! - `R1` - `R5`: Arguments and temporaries
-//! - `R6` - `R7`: Scratch registers
+//! (GCC cdecl-like calling conv)
+//! - R1: return value
+//! - R1-R3: caller save
+//! - R4-R7: callee save
+//! - R8: base pointer
+//! - Argument passed RTL on stack
 
 use core::fmt;
 use crate::arch::*;
 
-const CALLEE_SAVE: &[UrclReg] = &[UrclReg::R1, UrclReg::R2, UrclReg::R3, UrclReg::R4, UrclReg::R5];
-const ARG_REGS: &[UrclReg] = &[UrclReg::R1, UrclReg::R2, UrclReg::R3, UrclReg::R4, UrclReg::R5];
+const CALLER_SAVE: &[UrclReg] = &[UrclReg::R1, UrclReg::R2, UrclReg::R3];
+const CALLEE_SAVE: &[UrclReg] = &[UrclReg::R4, UrclReg::R5, UrclReg::R6, UrclReg::R7];
 const RET_REG: UrclReg = UrclReg::R1;
 
 // markers for addsp
-const SP_INCR: i64 = i64::MAX;
-const SP_DECR: i64 = i64::MIN;
+const SP_MARKER: i64 = i64::MAX;
 
 const SPILL_0: UrclReg = UrclReg::R6;
 const SPILL_1: UrclReg = UrclReg::R7;
+
+const BASE_PTR: UrclReg = UrclReg::R8;
 
 #[derive(Clone)]
 pub enum Operand {
@@ -55,6 +59,9 @@ pub enum UrclInst {
 
     Llod(VReg<UrclReg>, VReg<UrclReg>, i64),
     Lstr(VReg<UrclReg>, i64, VReg<UrclReg>),
+
+    Psh(Operand),
+    Pop(VReg<UrclReg>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, strum::Display)]
@@ -96,13 +103,14 @@ pub enum UrclReg {
     R5,
     R6,
     R7,
+    R8,
 }
 
 impl Register for UrclReg {
     const REG_COUNT: usize = <Self as strum::EnumCount>::COUNT;
 
     fn get_regs() -> &'static [Self] {
-        &[Self::R1, Self::R2, Self::R3, Self::R4, Self::R5]
+        &[Self::R1, Self::R2, Self::R3, Self::R4, Self::R5]//, Self::R6, Self::R7]
     }
 }
 
@@ -159,6 +167,10 @@ impl Inst for UrclInst {
                     ra.define(VReg::Spilled((*o) as usize));
                 };
             },
+
+            Self::Psh(v) => if let Operand::Register(v) = v { ra.add_use(*v) },
+            Self::Pop(v) => ra.define(*v),
+
             Self::Ret | Self::Jmp(_) | Self::Cal(_) => {},
         }
     }
@@ -188,6 +200,8 @@ impl Inst for UrclInst {
                 apply(b);
                 apply(v);
             },
+            Self::Psh(v) => if let Operand::Register(v) = v { apply(v); },
+            Self::Pop(v) => apply(v),
             Self::Ret | Self::Jmp(_) | Self::Cal(_) => {},
         }
     }
@@ -240,6 +254,8 @@ impl Inst for UrclInst {
                             ua(b);
                             ub(v);
                         },
+                        Self::Psh(v) => if let Operand::Register(v) = v { ua(v); },
+                        Self::Pop(v) => ud(v),
                         Self::Ret | Self::Jmp(_) | Self::Cal(_) => {},
                     }
 
@@ -275,11 +291,9 @@ impl Inst for UrclInst {
             }
 
             let update = |inst: &mut Vec<Self>| for i in inst.iter_mut() {
-                if let Self::Int2(UrclIntOp::Add, VReg::Real(UrclReg::Sp), Operand::Register(VReg::Real(UrclReg::Sp)), Operand::Immediate(v)) = i {
-                    match *v {
-                        SP_INCR => *v = frame_size as i64,
-                        SP_DECR => *v = -(frame_size as i64),
-                        _ => {},
+                if let Self::Int2(UrclIntOp::Sub, VReg::Real(UrclReg::Sp), Operand::Register(VReg::Real(BASE_PTR)), Operand::Immediate(v)) = i {
+                    if *v == SP_MARKER {
+                        *v = frame_size as i64;
                     }
                 }
             };
@@ -299,7 +313,7 @@ impl Inst for UrclInst {
             [Self::Mov(d, v), ..] if d == v => Some((vec![], 1)),
             [Self::Jmp(Location::Block(t))] if bi.map_or(false, |b| b.0 + 1 == *t) => Some((vec![], 1)),
             [Self::Imm(d, 0), ..] => Some((
-                vec![Self::Int2(UrclIntOp::Xor, *d, (*d).into(), (*d).into())],
+                vec![Self::Mov(*d, UrclReg::R0.into())],
                 1,
             )),
             [Self::Mov(a1, b1), Self::Mov(b2, a2), ..] if *a1 == *a2 && *b1 == *b2 => Some((
@@ -315,21 +329,26 @@ impl Inst for UrclInst {
     }
 
     fn emit_assembly<W: std::io::Write>(f: &mut W, vcode: &VCode<Self>) -> std::io::Result<()> {
-        writeln!(f, "bits 32")?;
-        writeln!(f, "minreg 7")?;
-        writeln!(f, "minstack 512")?;
-
-        writeln!(f, "cal !_start")?;
-        writeln!(f, "hlt")?;
+        writeln!(f, "// bits 32")?;
+        writeln!(f, "// minreg 8")?;
+        writeln!(f, "// minstack 512")?;
+        writeln!(f, "// mov r8 sp")?;
+        writeln!(f, "// cal !_start")?;
+        writeln!(f, "// hlt")?;
 
         for (i, n) in vcode.funcs.iter().enumerate() {
-            if n.linkage == Linkage::External { continue; }
-
-            if n.linkage == Linkage::Public {
-                writeln!(f, "\n!{}", n.name)?;
+            match n.linkage {
+                Linkage::External => {
+                    writeln!(f, "\n@define .F{i} !{}", n.name)?;
+                    continue;
+                },
+                Linkage::Public => {
+                    writeln!(f, "\n!{} .F{i}", n.name)?;
+                },
+                Linkage::Private => {
+                    writeln!(f, "\n.F{i}")?;
+                },
             }
-
-            writeln!(f, ".F{i}")?;
 
             for i in n.pre.iter() {
                 writeln!(f, "{i}")?;
@@ -384,9 +403,12 @@ impl InstSelector for UrclSelector {
     type Instruction = UrclInst;
 
     fn select_pre_fn(&mut self, gen: &mut VCodeGen<Self::Instruction>, args: &[ValueType]) {
-        let osp = gen.vreg_alloc.alloc_virtual().force_in_reg(UrclReg::Sp);
+        let bp = gen.vreg_alloc.alloc_virtual().force_in_reg(BASE_PTR);
         let sp = gen.vreg_alloc.alloc_virtual().force_in_reg(UrclReg::Sp);
-        gen.push_inst(UrclInst::Int2(UrclIntOp::Add, sp, osp.into(), Operand::Immediate(SP_DECR)));
+
+        gen.push_inst(UrclInst::Psh(bp.into()));
+        gen.push_inst(UrclInst::Mov(bp, sp));
+        gen.push_inst(UrclInst::Int2(UrclIntOp::Sub, sp, bp.into(), Operand::Immediate(SP_MARKER)));
         self.sp = sp;
 
         for (ri, r) in CALLEE_SAVE.iter().enumerate() {
@@ -396,12 +418,7 @@ impl InstSelector for UrclSelector {
             gen.push_inst(UrclInst::SavingMov(save, r));
         }
 
-        // TODO: big ass arg counts
-        for (i, (_, r)) in args.iter().zip(ARG_REGS.iter().copied()).enumerate() {
-            let i = gen.get_arg_vreg(i);
-            let r = gen.vreg_alloc.alloc_virtual().force_in_reg(r);
-            gen.push_inst(UrclInst::Mov(i, r));
-        }
+        // TODO: get arguments
     }
 
     fn select_inst(&mut self, gen: &mut VCodeGen<Self::Instruction>, inst: &Instruction) {
@@ -433,14 +450,9 @@ impl InstSelector for UrclSelector {
                 gen.push_inst(UrclInst::Imm(d, *v as _));
             },
             Instruction::Call(r, d, a) => {
-                let mut saved = Vec::with_capacity(a.len());
-                for (a, r) in a.iter().zip(ARG_REGS.iter().copied()) {
+                for a in a.iter().rev() {
                     let a = gen.get_value_vreg(a.id);
-                    let r = gen.vreg_alloc.alloc_virtual().force_in_reg(r);
-                    let save = gen.vreg_alloc.alloc_virtual();
-                    gen.push_inst(UrclInst::SavingMov(save, r));
-                    gen.push_inst(UrclInst::Mov(r, a));
-                    saved.push(save);
+                    gen.push_inst(UrclInst::Psh(a.into()));
                 }
 
                 gen.push_inst(UrclInst::Cal((*d).into()));
@@ -451,10 +463,9 @@ impl InstSelector for UrclSelector {
                     gen.push_inst(UrclInst::Mov(rv, r1));
                 }
 
-                for (s, r) in saved.into_iter().zip(ARG_REGS.iter().copied()) {
-                    let r = gen.vreg_alloc.alloc_virtual().force_in_reg(r);
-                    gen.push_inst(UrclInst::SavingMov(r.into(), s));
-                }
+                let sp = gen.vreg_alloc.alloc_virtual().force_in_reg(UrclReg::Sp);
+                let nsp = gen.vreg_alloc.alloc_virtual().force_in_reg(UrclReg::Sp);
+                gen.push_inst(UrclInst::Int2(UrclIntOp::Add, nsp, sp.into(), Operand::Immediate(a.len() as _)));
             },
             Instruction::Alloc(..) => todo!(),
             Instruction::Load(..) | Instruction::Store(..) => todo!(),
@@ -486,8 +497,10 @@ impl InstSelector for UrclSelector {
                     gen.push_inst(UrclInst::SavingMov(r, self.callee_save_vregs[ri]));
                 }
 
+                let bp = gen.vreg_alloc.alloc_virtual().force_in_reg(BASE_PTR);
                 let nsp = gen.vreg_alloc.alloc_virtual().force_in_reg(UrclReg::Sp);
-                gen.push_inst(UrclInst::Int2(UrclIntOp::Add, nsp, self.sp.into(), Operand::Immediate(SP_INCR)));
+                gen.push_inst(UrclInst::Mov(nsp.into(), bp));
+                gen.push_inst(UrclInst::Pop(bp));
                 gen.push_inst(UrclInst::Ret);
             },
             Terminator::None => {},
@@ -537,6 +550,9 @@ impl fmt::Display for UrclInst {
 
             UrclInst::Llod(d, b, o) => write!(f, "llod {d} {b} {o}"),
             UrclInst::Lstr(b, o, v) => write!(f, "lstr {b} {o} {v}"),
+
+            UrclInst::Psh(v) => write!(f, "psh {v}"),
+            UrclInst::Pop(v) => write!(f, "pop {v}"),
         }
     }
 }

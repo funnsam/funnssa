@@ -44,6 +44,7 @@ struct Function<'a> {
 #[strum(serialize_all = "lowercase")]
 pub enum Linkage {
     Public,
+    Private,
     External,
 }
 

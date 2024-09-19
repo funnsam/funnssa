@@ -129,10 +129,10 @@ impl<R: Register + 'static +core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
             if self.last_uses.get(i).map_or(true, |u| u.len() != 1 || u[0].0 != *ib) { continue; }
 
             for (j, (jb, ji)) in self.first_def.iter() {
-                if self.last_uses.get(j).map_or(true, |u| u.len() != 1 || u[0].0 != *ib) { continue; }
+                if ib != jb || self.last_uses.get(j).map_or(true, |u| u.len() != 1 || u[0].0 != *ib) { continue; }
 
 
-                if i != j && *ii <= self.last_uses[j][0].1 && *ji <= self.last_uses[i][0].1 {
+                if i != j && *ii < self.last_uses[j][0].1 && *ji < self.last_uses[i][0].1 {
                     intg.get_mut(i).unwrap().insert(*j);
                     intg.get_mut(j).unwrap().insert(*i);
                 }
@@ -177,7 +177,7 @@ impl<R: Register + 'static +core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
             }
         }
 
-        // TODO: lives partially in the bb, came out
+        // lives partially in the bb, came out
         //
         // a b
         //      bb:
@@ -185,6 +185,18 @@ impl<R: Register + 'static +core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
         // |*|      def b
         // |*|      last use a
         //   |      escape b
+        for (i, u) in self.last_uses.iter() {
+            for (ab, ai) in u.iter() {
+                let ab_idx = ab.map_or(0, |i| i.0 + 1);
+
+                for (j, bi) in live_in[ab_idx].iter().filter_map(|j| self.last_uses.get(j)?.iter().find(|(b, _)| ab == b).map(|(_, i)| (j, i))) {
+                    if i != j && ai <= bi {
+                        intg.get_mut(i).unwrap().insert(*j);
+                        intg.get_mut(j).unwrap().insert(*i);
+                    }
+                }
+            }
+        }
 
         for (i, (db, _)) in self.first_def.iter() {
             for j in live_out[db.map_or(0, |b| b.0 + 1)].iter() {
@@ -194,8 +206,6 @@ impl<R: Register + 'static +core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
                 }
             }
         }
-
-        print!("graph h{{"); for (v, i) in intg.iter() { print!("{v};"); for i in i.iter() { print!("{v}--{i};"); } }println!("}}");
 
         for (cf, cts) in self.coalesce_to.iter_mut() {
             cts.retain(|t| intg.get(cf).map_or(true, |i| !i.contains(t)));
@@ -253,6 +263,36 @@ impl<R: Register + 'static +core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
 
         for (v, c) in color.iter() {
             if let VReg::Virtual(v) = v { alloc[*v] = R::get_regs().get(*c).cloned().map_or_else(|| VReg::Spilled(*c - R::get_regs().len()), VReg::Real) }
+        }
+
+        #[cfg(debug_assertions)] {
+            print!("graph intg {{");
+            for (v, i) in intg.iter() {
+                let vc = color.get(v);
+                print!("\"{v}({})\";", vc.unwrap_or(&usize::MAX));
+
+                for i in i.iter() {
+                    let ic = color.get(i);
+                    print!("\"{v}({})\"--\"{i}({})\";", vc.unwrap_or(&usize::MAX), ic.unwrap_or(&usize::MAX));
+
+                    if vc.is_some() && vc == ic {
+                        println!("");
+                    }
+                }
+            }
+            println!("}}");
+
+            for (v, i) in intg.iter() {
+                let vc = color.get(v);
+
+                for i in i.iter() {
+                    let ic = color.get(i);
+
+                    if vc.is_some() && vc == ic {
+                        println!("warn: coloring incorrect at \"{v}\"--\"{i}\"");
+                    }
+                }
+            }
         }
     }
 }
