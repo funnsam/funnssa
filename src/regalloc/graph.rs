@@ -112,7 +112,12 @@ impl<R: Register + 'static +core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
             }
         }
 
-        // TODO: lives in the bb
+        for (i, ..) in self.first_def.iter() {
+            intg.entry(*i).or_default();
+        }
+
+
+        // lives in the bb
         //
         // a b
         //      bb:
@@ -120,6 +125,19 @@ impl<R: Register + 'static +core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
         // |*|      def b
         // |*|      last use a
         //   |      last use b
+        for (i, (ib, ii)) in self.first_def.iter() {
+            if self.last_uses.get(i).map_or(true, |u| u.len() != 1 || u[0].0 != *ib) { continue; }
+
+            for (j, (jb, ji)) in self.first_def.iter() {
+                if self.last_uses.get(j).map_or(true, |u| u.len() != 1 || u[0].0 != *ib) { continue; }
+
+
+                if i != j && *ii <= self.last_uses[j][0].1 && *ji <= self.last_uses[i][0].1 {
+                    intg.get_mut(i).unwrap().insert(*j);
+                    intg.get_mut(j).unwrap().insert(*i);
+                }
+            }
+        }
 
         // lives across the entire bb
         //
@@ -129,16 +147,14 @@ impl<R: Register + 'static +core::fmt::Debug> RegAlloc<R> for GraphAlloc<R> {
         // |*|      last use b
         // |        escape a
         for (i, (db, _)) in self.first_def.iter() {
-            intg.entry(*i).or_default();
             let db_idx = db.map_or(0, |i| i.0 + 1);
 
-            // TODO: no this isnt correct
-            // for j in live_in[db_idx].iter().zip(live_out[db_idx].iter()).filter_map(|(a, b)| (a == b).then_some(a)) {
-            //     if i != j {
-            //         intg.get_mut(i).unwrap().insert(*j);
-            //         intg.get_mut(j).unwrap().insert(*i);
-            //     }
-            // }
+            for j in live_in[db_idx].iter() {
+                if live_out[db_idx].contains(j) && i != j {
+                    intg.get_mut(i).unwrap().insert(*j);
+                    intg.get_mut(j).unwrap().insert(*i);
+                }
+            }
         }
 
         // lives partially in the bb, came in
