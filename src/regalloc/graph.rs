@@ -1,5 +1,5 @@
 use super::*;
-use std::collections::HashMap;
+use non_random_state::*;
 
 type InnerLoc = (Option<BlockId>, usize);
 

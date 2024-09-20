@@ -20,7 +20,7 @@ pub mod types;
 pub mod value;
 mod display;
 
-use std::collections::{HashMap, HashSet};
+use non_random_state::*;
 use types::*;
 use value::*;
 
